@@ -53,6 +53,18 @@ def assert_shapes(
         zip(actual_shapes, expected_shapes)
     ):
         inferred_shape = []
+        
+        # only allow ellipses as the starting dim
+        if any(i == Ellipsis for i in expected_shape[1:]):
+            raise ValueError(
+                f"'...' is only allowed as the first dimension, but annotated "
+                f"shape was {expected_shape}."
+            )
+        
+        # cut off arbitrary batch dimensions
+        if expected_shape[0] == Ellipsis:
+            expected_shape = expected_shape[1:]
+            actual_shape = actual_shape[-len(expected_shape):]
 
         if len(actual_shape) != len(expected_shape):
             raise IncompatibleShapeError(
@@ -84,11 +96,16 @@ def assert_shapes(
 def str_to_shape_descriptor(s: str):
     s = s.replace(",", "").replace("(", "").replace(")", "")
     result = []
+    
     for i in s.split(" "):
-        try:
-            result.append(int(i))
-        except ValueError:
-            result.append(i)
+        if i == "...":
+            result.append(Ellipsis)
+        else:
+            try:
+                result.append(int(i))
+            except ValueError:
+                result.append(i)
+                
     return tuple(result)
 
 
