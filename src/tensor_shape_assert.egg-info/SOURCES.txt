@@ -1,0 +1,12 @@
+LICENSE
+README.md
+pyproject.toml
+setup.cfg
+setup.py
+src/tensor_shape_assert/__init__.py
+src/tensor_shape_assert/tensor_shape_assert.py
+src/tensor_shape_assert/tensor_shape_assert_test.py
+src/tensor_shape_assert.egg-info/PKG-INFO
+src/tensor_shape_assert.egg-info/SOURCES.txt
+src/tensor_shape_assert.egg-info/dependency_links.txt
+src/tensor_shape_assert.egg-info/top_level.txt
