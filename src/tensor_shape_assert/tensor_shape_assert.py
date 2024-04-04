@@ -1,23 +1,6 @@
 from typing import Callable
 import warnings
-
-# <-------
-# from: https://stackoverflow.com/questions/68901049/copying-the-docstring-of-function-onto-another-function-by-name
-from typing import Callable, TypeVar, ParamSpec
-
-P = ParamSpec("P")
-T = TypeVar("T")
-
-def wraps(wrapper: Callable[P, T]):
-    """An implementation of functools.wraps."""
-
-    def decorator(func: Callable) -> Callable[P, T]:
-        func.__doc__ = wrapper.__doc__
-        return func
-
-    return decorator
-# end from
-# ------->
+from functools import wraps
 
 try:
     import torch
@@ -228,8 +211,4 @@ def check_tensor_shapes(variable_assertions: list[Callable] = None):
             
             return output
         return check_wrapper
-    
-    # if callable(_fn):
-    #     return wrapper_factory(_fn)
-    # else:
     return wrapper_factory
