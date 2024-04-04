@@ -1,3 +1,4 @@
+from typing import Callable
 import warnings
 from functools import wraps
 
@@ -34,6 +35,9 @@ class IncompatibleShapeError(RuntimeError):
         self.actual_shape = actual_shape
         self.expected_shape = expected_shape
         self.inferred_shape = inferred_shape
+
+class VariableAssertionError(RuntimeError):
+    pass
 
 
 def do_shapes_match(a: tuple[int | str, ...], b: tuple[int | str, ...]):
@@ -77,7 +81,8 @@ def assert_shapes(
             if not isinstance(e_dim, int) and e_dim != "*":
                 variables[e_dim] = variables.get(e_dim, a_dim)
                 e_dim = variables[e_dim]
-            inferred_shape.append(e_dim)
+            else:
+                inferred_shape.append(e_dim)
 
         inferred_shape = tuple(inferred_shape)
 
@@ -118,74 +123,97 @@ class ShapedTensor(TensorType):
     def __class_getitem__(cls, key):
         return str_to_shape_descriptor(key)
 
-
-def check_tensor_shapes(fn):
-    @wraps(fn)
-    def check_wrapper(*args, **kwargs):
-        if len(args) > 0:
-            warnings.warn(RuntimeWarning(
-                "Tensor shape checking currently does not support positional "
-                "parameters. Pass all parameters with keywords instead. "
-                "You can ignore this message if you decorate a method, as "
-                "'self' is a positional parameter."
-            ))
-
-        # collect type hints
-        shapes_dict = {
-            k: v
-            for k, v in fn.__annotations__.items()
-            if isinstance(v, tuple) and k in kwargs
-        }
-        sorted_keys = list(shapes_dict)
-
-        # check input shapes
-        try:
-            variables = assert_shapes(
-                actual_shapes=tuple(kwargs[k].shape for k in sorted_keys),
-                expected_shapes=tuple(shapes_dict[k] for k in sorted_keys),
-            )
-        except IncompatibleShapeError as e:
-            raise IncompatibleShapeError(
-                tensor_idx_or_name=sorted_keys[e.tensor_idx],
-                actual_shape=e.actual_shape,
-                expected_shape=e.expected_shape,
-                inferred_shape=e.inferred_shape
-            )
-
-        # call function
-        output = fn(*args, **kwargs)
-
-        # check output type if annotated
-        if "return" in fn.__annotations__:
-            # check output shapes
-            if isinstance(output, TensorType): # expect a single annotation
-                output_annotation = fn.__annotations__["return"]
+def check_variable_assertions(variable_assertions: dict[str, Callable] | None, variables: dict[str, int]):
+    if variable_assertions is not None:
+        for var_name, assert_fn in variable_assertions.items():
+            if var_name in variables:
+                try:
+                    assert_success = assert_fn(variables)
+                except Exception as e:
+                    raise RuntimeError("An exception was raised inside assert function.")
                 
-                # check if annotation is shape
-                if isinstance(output_annotation, tuple):
-                    assert_shapes(
-                        actual_shapes=(output.shape,),
-                        expected_shapes=(output_annotation,),
-                        variables=variables,
-                    )
-                elif hasattr(fn.__annotations__["return"], "__args__") and any(
-                    isinstance(a, tuple) for a in fn.__annotations__["return"].__args__
-                ):
-                    # assure that no tuple of tensors is annotated here
-                    raise RuntimeError(
-                        "Function return annotation is a tuple of at least one "
-                        "shape annotation, but the function returned a single "
-                        "tensor."
-                    )
-            else: # expect a tuple of annotations
-                output_annotations = fn.__annotations__["return"].__args__
-                valid_idxs = [i for i, a in enumerate(output_annotations)
-                              if isinstance(a, tuple)]
-                assert_shapes(
-                    actual_shapes=tuple(output[i].shape for i in valid_idxs),
-                    expected_shapes=tuple(output_annotations[i] for i in valid_idxs),
-                    variables=variables,
-                )
+                if not assert_success:
+                        raise VariableAssertionError(f"An assertion failed for variables {variables}")
 
-        return output
-    return check_wrapper
+def check_tensor_shapes(_fn: Callable = None, variable_assertions: list[Callable] = None):
+    def wrapper_factory(fn):
+        @wraps(fn)
+        def check_wrapper(*args, **kwargs):
+            if len(args) > 0:
+                warnings.warn(RuntimeWarning(
+                    "Tensor shape checking currently does not support positional "
+                    "parameters. Pass all parameters with keywords instead. "
+                    "You can ignore this message if you decorate a method, as "
+                    "'self' is a positional parameter."
+                ))
+
+            # collect type hints
+            shapes_dict = {
+                k: v
+                for k, v in fn.__annotations__.items()
+                if isinstance(v, tuple) and k in kwargs
+            }
+            sorted_keys = list(shapes_dict)
+
+            # check input shapes
+            try:
+                variables = assert_shapes(
+                    actual_shapes=tuple(kwargs[k].shape for k in sorted_keys),
+                    expected_shapes=tuple(shapes_dict[k] for k in sorted_keys),
+                )
+            except IncompatibleShapeError as e:
+                raise IncompatibleShapeError(
+                    tensor_idx_or_name=sorted_keys[e.tensor_idx],
+                    actual_shape=e.actual_shape,
+                    expected_shape=e.expected_shape,
+                    inferred_shape=e.inferred_shape
+                )
+            
+            # check assert functions for variable values
+            check_variable_assertions(variable_assertions, variables)
+
+            # call function
+            output = fn(*args, **kwargs)
+
+            # check output type if annotated
+            if "return" in fn.__annotations__:
+                # check output shapes
+                if isinstance(output, TensorType): # expect a single annotation
+                    output_annotation = fn.__annotations__["return"]
+                    
+                    # check if annotation is shape
+                    if isinstance(output_annotation, tuple):
+                        variables = assert_shapes(
+                            actual_shapes=(output.shape,),
+                            expected_shapes=(output_annotation,),
+                            variables=variables
+                        )
+                    elif hasattr(fn.__annotations__["return"], "__args__") and any(
+                        isinstance(a, tuple) for a in fn.__annotations__["return"].__args__
+                    ):
+                        # assure that no tuple of tensors is annotated here
+                        raise RuntimeError(
+                            "Function return annotation is a tuple of at least one "
+                            "shape annotation, but the function returned a single "
+                            "tensor."
+                        )
+                else: # expect a tuple of annotations
+                    output_annotations = fn.__annotations__["return"].__args__
+                    valid_idxs = [i for i, a in enumerate(output_annotations)
+                                if isinstance(a, tuple)]
+                    variables = assert_shapes(
+                        actual_shapes=tuple(output[i].shape for i in valid_idxs),
+                        expected_shapes=tuple(output_annotations[i] for i in valid_idxs),
+                        variables=variables
+                    )
+            
+            # check assert functions again after receiving output
+            check_variable_assertions(variable_assertions, variables)
+            
+            return output
+        return check_wrapper
+    
+    if callable(_fn):
+        return wrapper_factory(_fn)
+    else:
+        return wrapper_factory

@@ -1,1 +1,3 @@
-*/__pycache__
+**/__pycache__
+src/tensor_shape_assert.egg-info
+build

@@ -1,1 +1,1 @@
-from .tensor_shape_assert import *
+from .tensor_shape_assert import check_tensor_shapes, ShapedTensor, IncompatibleShapeError
