@@ -49,11 +49,15 @@ def assert_shapes(
     actual_shapes: tuple[tuple[int, ...]],
     expected_shapes: tuple[tuple[int | str, ...]],
     variables: dict[str, int] = None,
+    verbose: bool = False
 ):
     variables = dict() if variables is None else variables
     for t_idx, (actual_shape, expected_shape) in enumerate(
         zip(actual_shapes, expected_shapes)
     ):
+        if verbose:
+            print(f"shape check {t_idx}: got {actual_shape}, expect {expected_shape}")
+
         inferred_shape = []
         
         # # only allow ellipses as the starting dim
@@ -66,6 +70,9 @@ def assert_shapes(
         # replace unnamed batch dimension with *
         if expected_shape[0] == Ellipsis:
             expected_shape = (*(['*'] * (len(actual_shape) - len(expected_shape) + 1)), *expected_shape[1:])
+
+            if verbose:
+                print("Replacing ellipsis with wildcards - new expected shape:", expected_shape)
         
         # replace named batch dimension with recorded size
         elif isinstance(expected_shape[0], str) and expected_shape[0].startswith("..."):
@@ -73,6 +80,9 @@ def assert_shapes(
                 variables[expected_shape[0]] = actual_shape[:-len(expected_shape)+1]
             
             expected_shape = (*variables[expected_shape[0]], *expected_shape[1:])
+
+            if verbose:
+                print("Replacing named batch dim with actual shape - new expected shape:", expected_shape)
 
         # check if number of dimensions is the same
         if len(actual_shape) != len(expected_shape):
@@ -87,10 +97,16 @@ def assert_shapes(
         for a_dim, e_dim in zip(actual_shape, expected_shape):
             if not isinstance(e_dim, int) and e_dim != "*":
                 variables[e_dim] = variables.get(e_dim, a_dim)
+
+                if verbose:
+                    print(f"Get value for variable: {e_dim} = {variables[e_dim]}")
+
                 e_dim = variables[e_dim]
             inferred_shape.append(e_dim)
 
         inferred_shape = tuple(inferred_shape)
+        if verbose:
+            print("final inferred shape:", inferred_shape, "to be checked against", actual_shape)
 
         if not do_shapes_match(actual_shape, inferred_shape):
             raise IncompatibleShapeError(
@@ -141,10 +157,15 @@ def check_variable_assertions(variable_assertions: dict[str, Callable] | None, v
                 if not assert_success:
                         raise VariableAssertionError(f"An assertion failed for variables {variables}")
 
-def check_tensor_shapes(variable_assertions: list[Callable] = None):
+def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: bool = False):
     def wrapper_factory(fn):
         @wraps(fn)
         def check_wrapper(*args, **kwargs):
+
+            if verbose:
+                print("-"*30)
+                print("Checking", fn.__name__)
+
             if len(args) > 0:
                 warnings.warn(RuntimeWarning(
                     "Tensor shape checking currently does not support positional "
@@ -154,18 +175,23 @@ def check_tensor_shapes(variable_assertions: list[Callable] = None):
                 ))
 
             # collect type hints
-            shapes_dict = {
+            expected_shapes_dict = {
                 k: v
                 for k, v in fn.__annotations__.items()
                 if isinstance(v, tuple) and k in kwargs
             }
-            sorted_keys = list(shapes_dict)
+            sorted_keys = list(expected_shapes_dict)
+
+            if verbose:
+                print("Collected following input shapes (and expected shapes)")
+                for k in sorted_keys:
+                    print(k, kwargs[k].shape, expected_shapes_dict[k])
 
             # check input shapes
             try:
                 variables = assert_shapes(
                     actual_shapes=tuple(kwargs[k].shape for k in sorted_keys),
-                    expected_shapes=tuple(shapes_dict[k] for k in sorted_keys),
+                    expected_shapes=tuple(expected_shapes_dict[k] for k in sorted_keys),
                 )
             except IncompatibleShapeError as e:
                 raise IncompatibleShapeError(

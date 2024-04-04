@@ -179,7 +179,6 @@ class TestNamedBatchDimensions(unittest.TestCase):
             return x @ y
         
         test(x=torch.zeros(12, 2, 3), y=torch.zeros(12, 3, 2))
-        self.assertTrue(True)
 
     def test_correct_1_batch_dimension_x_longer_y(self):
         @check_tensor_shapes()
@@ -190,7 +189,6 @@ class TestNamedBatchDimensions(unittest.TestCase):
             return x * y[..., None, :]
         
         test(x=torch.zeros(12, 2, 3), y=torch.zeros(12, 3))
-        self.assertTrue(True)
 
     def test_correct_1_batch_dimension_y_longer_x(self):
         @check_tensor_shapes()
@@ -201,14 +199,25 @@ class TestNamedBatchDimensions(unittest.TestCase):
             return x[..., None] * y
         
         test(x=torch.zeros(12, 2), y=torch.zeros(12, 2, 3))
-        self.assertTrue(True)
 
     def test_correct_2_batch_dimensions(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["...B 2 3"], y: ShapedTensor["...B 3 2"]) -> ShapedTensor["...B 2 2"]:
             return x @ y
         test(x=torch.zeros(12, 3, 2, 3), y=torch.zeros(12, 3, 3, 2))
-        self.assertTrue(True)
+
+    def test_correct_2_batch_dimensions_tuple_output(self):
+        @check_tensor_shapes()
+        def test(
+            x: ShapedTensor["...B 2 3"],
+            y: ShapedTensor["...B 3 2"]
+        ) -> tuple[
+            ShapedTensor["...B 2 2"],
+            ShapedTensor["...B"]
+        ]:
+            return x @ y, (x @ y).sum(dim=(-1, -2))
+        
+        test(x=torch.zeros(12, 3, 2, 3), y=torch.zeros(12, 3, 3, 2))
 
     def test_wrong_length_batch_dimensions_input(self):
         with self.assertRaises(IncompatibleShapeError):
@@ -237,6 +246,76 @@ class TestNamedBatchDimensions(unittest.TestCase):
             def test(x: ShapedTensor["...B 2 3"], y: ShapedTensor["...B 3 2"]) -> ShapedTensor["...B 2 2"]:
                 return (x @ y)[:5]
             test(x=torch.zeros(12, 4, 2, 3), y=torch.zeros(12, 4, 2, 3))
+
+class TestClassFunctionality(unittest.TestCase):
+    def test_method_annotation(self):
+        class Test:
+            @check_tensor_shapes()
+            def my_method(
+                self,
+                x: ShapedTensor["b 3"],
+                y: ShapedTensor["b"]
+            ):
+                return x + y[:, None]
+        
+        with self.assertWarns(RuntimeWarning):
+            Test().my_method(x=torch.zeros(17, 3), y=torch.zeros(17))
+        
+        with self.assertWarns(RuntimeWarning):
+            with self.assertRaises(IncompatibleShapeError):
+                Test().my_method(x=torch.zeros(17, 4), y=torch.zeros(17))
+
+    def test_constructor_annotation(self):
+        class Test:
+            @check_tensor_shapes()
+            def __init__(self, x: ShapedTensor["b 3"], y: ShapedTensor["b"]):
+                self.z = x + y[:, None]
+        
+        with self.assertWarns(RuntimeWarning):
+            Test(x=torch.zeros(17, 3), y=torch.zeros(17))
+
+        with self.assertWarns(RuntimeWarning):
+            with self.assertRaises(IncompatibleShapeError):
+                Test(x=torch.zeros(17, 4), y=torch.zeros(17))
+
+    def test_inherited_method_annotation(self):
+        class Test:
+            @check_tensor_shapes()
+            def my_method(
+                self,
+                x: ShapedTensor["b 3"],
+                y: ShapedTensor["b"]
+            ) -> ShapedTensor["b 3"]:
+                return x + y[:, None]
+            
+        class SubTest(Test):
+            pass
+        
+        with self.assertWarns(RuntimeWarning):
+            SubTest().my_method(x=torch.zeros(17, 3), y=torch.zeros(17))
+
+    def test_overridden_method_annotation(self):
+        class Test:
+            @check_tensor_shapes()
+            def my_method(
+                self,
+                x: ShapedTensor["b 3"],
+                y: ShapedTensor["b"]
+            ) -> ShapedTensor["b 3"]:
+                return x + y[:, None]
+            
+        class SubTest(Test):
+            @check_tensor_shapes()
+            def my_method(
+                self,
+                x: ShapedTensor["b 3"],
+                y: ShapedTensor["b"]
+            ) -> ShapedTensor["b"]:
+                return super().my_method(x, y).sum(dim=1)
+        
+        with self.assertWarns(RuntimeWarning):
+            SubTest().my_method(x=torch.zeros(17, 3), y=torch.zeros(17))
+
         
 class TestMisc(unittest.TestCase):
     def test_instantiating(self):
