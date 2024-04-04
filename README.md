@@ -14,6 +14,7 @@ The return value can also be annotated in the same way. Additionally, the return
 ```python
 from .tensor_shape_assert import check_tensor_shapes, ShapedTensor
 
+@check_tensor_shapes()
 def my_func(x: ShapedTensor["a b 3"], y: ShapedTensor["b 2"]) -> ShapedTensor["a"]:
     z = x[:, :, :2] + y[None]
     return (z[:, :, 0] * z[:, :, 1]).sum(dim=1)

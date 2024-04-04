@@ -4,7 +4,7 @@ from tensor_shape_assert import check_tensor_shapes, ShapedTensor, IncompatibleS
 
 class Test1DAnnotations(unittest.TestCase):
     def test_constant_1d_input_shape_checked(self):
-        @check_tensor_shapes
+        @check_tensor_shapes()
         def test(x: ShapedTensor["5"]) -> ShapedTensor["2"]:
             return x[:2]
         
@@ -12,7 +12,7 @@ class Test1DAnnotations(unittest.TestCase):
         self.assertTupleEqual(test(x=x).shape, (2,))
         
     def test_constant_1d_input_shape_error(self):
-        @check_tensor_shapes
+        @check_tensor_shapes()
         def test(x: ShapedTensor["5"]) -> ShapedTensor["2"]:
             return x[:2]
         
@@ -29,7 +29,7 @@ class Test1DAnnotations(unittest.TestCase):
             test(x=x)
             
     def test_variable_1d_input_shape_checked(self):
-        @check_tensor_shapes
+        @check_tensor_shapes()
         def test(x: ShapedTensor["b"]) -> ShapedTensor["b"]:
             return x + 1
         
@@ -38,7 +38,7 @@ class Test1DAnnotations(unittest.TestCase):
         self.assertTrue(torch.all(x != test(x=x)))
         
     def test_variable_1d_input_shape_error(self):
-        @check_tensor_shapes
+        @check_tensor_shapes()
         def test(x: ShapedTensor["b"]) -> ShapedTensor["b"]:
             return x[:2]
         
@@ -53,7 +53,7 @@ class Test1DAnnotations(unittest.TestCase):
             
 class TestNDAnnotations(unittest.TestCase):
     def test_constant_nd_input_shape_checked(self):
-        @check_tensor_shapes
+        @check_tensor_shapes()
         def test(x: ShapedTensor["5 1"], y: ShapedTensor["1 3"]) -> ShapedTensor["2"]:
             return x[:2, 0] + y[0, 1:]
         
@@ -62,7 +62,7 @@ class TestNDAnnotations(unittest.TestCase):
         self.assertTupleEqual(test(x=x, y=y).shape, (2,))
         
     def test_constant_nd_input_shape_error(self):
-        @check_tensor_shapes
+        @check_tensor_shapes()
         def test(x: ShapedTensor["5 4 3"], y: ShapedTensor["3 4 5"]) -> ShapedTensor["3"]:
             return x[1, 2, :] + y[:, 1, 2]
         
@@ -82,7 +82,7 @@ class TestNDAnnotations(unittest.TestCase):
             test(x=x, y=y)
             
     def test_variable_nd_input_shape_checked(self):
-        @check_tensor_shapes
+        @check_tensor_shapes()
         def test(x: ShapedTensor["b 3 2"], y: ShapedTensor["3 c 2"]) -> ShapedTensor["3 c"]:
             return (x[:1, :1] + y).sum(dim=2)
         
@@ -99,7 +99,7 @@ class TestNDAnnotations(unittest.TestCase):
         self.assertTupleEqual(test(x=x, y=y).shape, (3, 12))
         
     def test_variable_nd_input_shape_error(self):
-        @check_tensor_shapes
+        @check_tensor_shapes()
         def test(x: ShapedTensor["b 3 2"], y: ShapedTensor["3 c 2"]) -> ShapedTensor["3 c"]:
             return (x[:1, :1] + y).sum(dim=2)
         
@@ -121,7 +121,7 @@ class TestNDAnnotations(unittest.TestCase):
             
 class TestArbitraryBatchDimAnnotations(unittest.TestCase):
     def test_constant_nd_arbitrary_batch_input_shape_checked(self):
-        @check_tensor_shapes
+        @check_tensor_shapes()
         def test(x: ShapedTensor["... 5 1"], y: ShapedTensor["... 1 3"]) -> ShapedTensor["... 2"]:
             return x[..., :2, 0] + y[..., 0, 1:]
         
@@ -142,7 +142,7 @@ class TestArbitraryBatchDimAnnotations(unittest.TestCase):
         self.assertTupleEqual(test(x=x, y=y).shape, (9, 8, 7, 2))
         
     def test_constant_nd_arbitrary_batch_input_shape_error(self):
-        @check_tensor_shapes
+        @check_tensor_shapes()
         def test(x: ShapedTensor["... 5 1"], y: ShapedTensor["... 1 3 2"]) -> ShapedTensor["... 2"]:
             return torch.zeros(6, 5, 4, 3, 1)
         
@@ -162,7 +162,7 @@ class TestArbitraryBatchDimAnnotations(unittest.TestCase):
             test(x=x, y=y)
         
     def test_invalid_arbitrary_shape_annotation(self):
-        @check_tensor_shapes
+        @check_tensor_shapes()
         def test(x: ShapedTensor["5 ..."], y: ShapedTensor["1 3"]) -> ShapedTensor["2"]:
             return torch.zeros(2)
         
@@ -177,7 +177,7 @@ class TestMisc(unittest.TestCase):
             
     def test_keyword_only(self):
         with self.assertWarns(RuntimeWarning):
-            @check_tensor_shapes
+            @check_tensor_shapes()
             def test(x: ShapedTensor["1"]):
                 return x
             
