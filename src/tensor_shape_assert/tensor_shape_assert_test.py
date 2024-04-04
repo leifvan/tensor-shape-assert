@@ -169,6 +169,74 @@ class TestArbitraryBatchDimAnnotations(unittest.TestCase):
         with self.assertRaises(ValueError):
             test(x=torch.zeros(5, 1), y=torch.zeros(1, 3))
         
+class TestNamedBatchDimensions(unittest.TestCase):
+    def test_correct_1_batch_dimension_equal_length(self):
+        @check_tensor_shapes()
+        def test(
+            x: ShapedTensor["...B 2 3"],
+            y: ShapedTensor["...B 3 2"]
+        ) -> ShapedTensor["...B 2 2"]:
+            return x @ y
+        
+        test(x=torch.zeros(12, 2, 3), y=torch.zeros(12, 3, 2))
+        self.assertTrue(True)
+
+    def test_correct_1_batch_dimension_x_longer_y(self):
+        @check_tensor_shapes()
+        def test(
+            x: ShapedTensor["...B 2 3"],
+            y: ShapedTensor["...B 3"]
+        ) -> ShapedTensor["...B 2 3"]:
+            return x * y[..., None, :]
+        
+        test(x=torch.zeros(12, 2, 3), y=torch.zeros(12, 3))
+        self.assertTrue(True)
+
+    def test_correct_1_batch_dimension_y_longer_x(self):
+        @check_tensor_shapes()
+        def test(
+            x: ShapedTensor["...B 2"],
+            y: ShapedTensor["...B 2 3"]
+        ) -> ShapedTensor["...B 2 3"]:
+            return x[..., None] * y
+        
+        test(x=torch.zeros(12, 2), y=torch.zeros(12, 2, 3))
+        self.assertTrue(True)
+
+    def test_correct_2_batch_dimensions(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["...B 2 3"], y: ShapedTensor["...B 3 2"]) -> ShapedTensor["...B 2 2"]:
+            return x @ y
+        test(x=torch.zeros(12, 3, 2, 3), y=torch.zeros(12, 3, 3, 2))
+        self.assertTrue(True)
+
+    def test_wrong_length_batch_dimensions_input(self):
+        with self.assertRaises(IncompatibleShapeError):
+            @check_tensor_shapes()
+            def test(x: ShapedTensor["...B 2 3"], y: ShapedTensor["...B 3 2"]) -> ShapedTensor["...B 2 2"]:
+                return x @ y
+            test(x=torch.zeros(12, 2, 3), y=torch.zeros(12, 3, 2, 3))
+
+    def test_wrong_length_batch_dimensions_output(self):
+        with self.assertRaises(IncompatibleShapeError):
+            @check_tensor_shapes()
+            def test(x: ShapedTensor["...B 2 3"], y: ShapedTensor["...B 3 2"]) -> ShapedTensor["...B 2 2"]:
+                return (x @ y)[0]
+            test(x=torch.zeros(12, 3, 2, 3), y=torch.zeros(12, 3, 2, 3))
+
+    def test_wrong_size_batch_dimensions_input(self):
+        with self.assertRaises(IncompatibleShapeError):
+            @check_tensor_shapes()
+            def test(x: ShapedTensor["...B 2 3"], y: ShapedTensor["...B 3 2"]) -> ShapedTensor["...B 2 2"]:
+                return x @ y
+            test(x=torch.zeros(12, 4, 2, 3), y=torch.zeros(12, 3, 2, 3))
+
+    def test_wrong_size_batch_dimensions_output(self):
+        with self.assertRaises(IncompatibleShapeError):
+            @check_tensor_shapes()
+            def test(x: ShapedTensor["...B 2 3"], y: ShapedTensor["...B 3 2"]) -> ShapedTensor["...B 2 2"]:
+                return (x @ y)[:5]
+            test(x=torch.zeros(12, 4, 2, 3), y=torch.zeros(12, 4, 2, 3))
         
 class TestMisc(unittest.TestCase):
     def test_instantiating(self):
@@ -182,6 +250,8 @@ class TestMisc(unittest.TestCase):
                 return x
             
             test(torch.zeros(1))
+
+
 
 if __name__ == "__main__":
     unittest.main()

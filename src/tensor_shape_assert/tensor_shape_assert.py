@@ -45,7 +45,6 @@ def do_shapes_match(a: tuple[int | str, ...], b: tuple[int | str, ...]):
         return False
     return all((i == j) or (i == "*") or (j == "*") for i, j in zip(a, b))
 
-
 def assert_shapes(
     actual_shapes: tuple[tuple[int, ...]],
     expected_shapes: tuple[tuple[int | str, ...]],
@@ -57,18 +56,25 @@ def assert_shapes(
     ):
         inferred_shape = []
         
-        # only allow ellipses as the starting dim
-        if any(i == Ellipsis for i in expected_shape[1:]):
+        # # only allow ellipses as the starting dim
+        if any(i == Ellipsis or (isinstance(i, str) and i.startswith("...")) for i in expected_shape[1:]):
             raise ValueError(
                 f"'...' is only allowed as the first dimension, but annotated "
                 f"shape was {expected_shape}."
             )
-        
-        # cut off arbitrary batch dimensions
-        if expected_shape[0] == Ellipsis:
-            expected_shape = expected_shape[1:]
-            actual_shape = actual_shape[-len(expected_shape):]
 
+        # replace unnamed batch dimension with *
+        if expected_shape[0] == Ellipsis:
+            expected_shape = (*(['*'] * (len(actual_shape) - len(expected_shape) + 1)), *expected_shape[1:])
+        
+        # replace named batch dimension with recorded size
+        elif isinstance(expected_shape[0], str) and expected_shape[0].startswith("..."):
+            if expected_shape[0] not in variables:
+                variables[expected_shape[0]] = actual_shape[:-len(expected_shape)+1]
+            
+            expected_shape = (*variables[expected_shape[0]], *expected_shape[1:])
+
+        # check if number of dimensions is the same
         if len(actual_shape) != len(expected_shape):
             raise IncompatibleShapeError(
                 tensor_idx_or_name=t_idx,
@@ -77,6 +83,7 @@ def assert_shapes(
                 inferred_shape=expected_shape,
             )
 
+        # track variables
         for a_dim, e_dim in zip(actual_shape, expected_shape):
             if not isinstance(e_dim, int) and e_dim != "*":
                 variables[e_dim] = variables.get(e_dim, a_dim)
