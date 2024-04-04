@@ -81,8 +81,7 @@ def assert_shapes(
             if not isinstance(e_dim, int) and e_dim != "*":
                 variables[e_dim] = variables.get(e_dim, a_dim)
                 e_dim = variables[e_dim]
-            else:
-                inferred_shape.append(e_dim)
+            inferred_shape.append(e_dim)
 
         inferred_shape = tuple(inferred_shape)
 
