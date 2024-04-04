@@ -39,6 +39,9 @@ class IncompatibleShapeError(RuntimeError):
 class VariableAssertionError(RuntimeError):
     pass
 
+class IllegalPositionalArgumentError(ValueError):
+    pass
+
 
 def do_shapes_match(a: tuple[int | str, ...], b: tuple[int | str, ...]):
     if len(a) != len(b):
@@ -157,7 +160,7 @@ def check_variable_assertions(variable_assertions: dict[str, Callable] | None, v
                 if not assert_success:
                         raise VariableAssertionError(f"An assertion failed for variables {variables}")
 
-def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: bool = False):
+def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: bool = False, ignore_args: bool = False):
     def wrapper_factory(fn):
         @wraps(fn)
         def check_wrapper(*args, **kwargs):
@@ -166,13 +169,18 @@ def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: boo
                 print("-"*30)
                 print("Checking", fn.__name__)
 
-            if len(args) > 0:
+            if len(args) == 1:
                 warnings.warn(RuntimeWarning(
                     "Tensor shape checking currently does not support positional "
                     "parameters. Pass all parameters with keywords instead. "
                     "You can ignore this message if you decorate a method, as "
                     "'self' is a positional parameter."
                 ))
+            elif len(args) > 1 and not ignore_args:
+                raise IllegalPositionalArgumentError(
+                    "Tensor shape checking currently does not support positional "
+                    "parameters. Pass all parameters with keywords instead."
+                )
 
             # collect type hints
             expected_shapes_dict = {
@@ -183,9 +191,9 @@ def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: boo
             sorted_keys = list(expected_shapes_dict)
 
             if verbose:
-                print("Collected following input shapes (and expected shapes)")
+                print(f"Collected {len(sorted_keys)} input shapes (and expected shapes)")
                 for k in sorted_keys:
-                    print(k, kwargs[k].shape, expected_shapes_dict[k])
+                    print(" ->", k, kwargs[k].shape, expected_shapes_dict[k])
 
             # check input shapes
             try:
