@@ -19,16 +19,19 @@ class IncompatibleShapeError(RuntimeError):
         actual_shape: tuple[int, ...],
         expected_shape: tuple[int, ...],
         inferred_shape: tuple[int, ...],
+        fn_name: str = "<unk>"
     ) -> None:
         if isinstance(tensor_idx_or_name, int):
+            tensor_type = "Output"
             tensor_repr = tensor_idx_or_name
         else:
+            tensor_type = "Input"
             tensor_repr = f"'{tensor_idx_or_name}'"
             
         super().__init__(
-            f"Tensor {tensor_repr} has mismatching shape: "
-            f"Expected {inferred_shape} (inferred from {expected_shape}), "
-            f"but was {actual_shape}."
+            f"{tensor_type} tensor {tensor_repr} of function '{fn_name}' has "
+            f"mismatching shape: Expected {inferred_shape} (inferred from "
+            f"{expected_shape}), but was {actual_shape}."
         )
         
         self.tensor_idx = tensor_idx_or_name
@@ -206,7 +209,8 @@ def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: boo
                     tensor_idx_or_name=sorted_keys[e.tensor_idx],
                     actual_shape=e.actual_shape,
                     expected_shape=e.expected_shape,
-                    inferred_shape=e.inferred_shape
+                    inferred_shape=e.inferred_shape,
+                    fn_name=fn.__name__
                 )
             
             # check assert functions for variable values
@@ -241,11 +245,20 @@ def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: boo
                     output_annotations = fn.__annotations__["return"].__args__
                     valid_idxs = [i for i, a in enumerate(output_annotations)
                                 if isinstance(a, tuple)]
-                    variables = assert_shapes(
+                    try:
+                        variables = assert_shapes(
                         actual_shapes=tuple(output[i].shape for i in valid_idxs),
                         expected_shapes=tuple(output_annotations[i] for i in valid_idxs),
                         variables=variables
                     )
+                    except IncompatibleShapeError as e:
+                        raise IncompatibleShapeError(
+                            tensor_idx_or_name=e.tensor_idx,
+                            actual_shape=e.actual_shape,
+                            expected_shape=e.expected_shape,
+                            inferred_shape=e.inferred_shape,
+                            fn_name=fn.__name__
+                        )
             
             # check assert functions again after receiving output
             check_variable_assertions(variable_assertions, variables)
