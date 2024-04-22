@@ -213,8 +213,14 @@ def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: boo
                     fn_name=fn.__name__
                 )
             
+            if verbose:
+                print("Input shapes check successful.")
+
             # check assert functions for variable values
             check_variable_assertions(variable_assertions, variables)
+
+            if verbose:
+                print("Input variable assertions check successful.")
 
             # call function
             output = fn(*args, **kwargs)
@@ -224,6 +230,9 @@ def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: boo
                 # check output shapes
                 if isinstance(output, TensorType): # expect a single annotation
                     output_annotation = fn.__annotations__["return"]
+
+                    if verbose:
+                        print("Collected a single output annotation:", output.shape, output_annotation)
                     
                     # check if annotation is shape
                     if isinstance(output_annotation, tuple):
@@ -241,10 +250,17 @@ def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: boo
                             "shape annotation, but the function returned a single "
                             "tensor."
                         )
+                    
                 else: # expect a tuple of annotations
                     output_annotations = fn.__annotations__["return"].__args__
                     valid_idxs = [i for i, a in enumerate(output_annotations)
-                                if isinstance(a, tuple)]
+                                  if isinstance(a, tuple)]  # tuple means converted string annotation here
+                    
+                    if verbose:
+                        print(f"Collected {len(valid_idxs)}/{len(output_annotations)} output annotations:")
+                        for i in valid_idxs:
+                            print(" ->", i, output[i].shape, output_annotations[i])
+
                     try:
                         variables = assert_shapes(
                         actual_shapes=tuple(output[i].shape for i in valid_idxs),
@@ -260,8 +276,14 @@ def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: boo
                             fn_name=fn.__name__
                         )
             
+            if verbose:
+                print("Output shapes check successful.")
+            
             # check assert functions again after receiving output
             check_variable_assertions(variable_assertions, variables)
+
+            if verbose:
+                print("Output variable assertions check successful.")
             
             return output
         return check_wrapper

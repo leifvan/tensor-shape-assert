@@ -49,7 +49,86 @@ class Test1DAnnotations(unittest.TestCase):
         with self.assertRaises(IncompatibleShapeError):
             x = torch.zeros(10, 2)
             test(x=x)
-            
+
+    def test_no_output_annotation(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["b"]):
+            return x + 1
+        
+        x = torch.zeros(8)
+        self.assertTupleEqual(test(x=x).shape, x.shape)
+        self.assertTrue(torch.all(x != test(x=x)))
+
+    def test_no_output_annotation_with_tuple(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["b"]):
+            return (x + 1, x + 2)
+        
+        x = torch.zeros(8)
+        self.assertTupleEqual(test(x=x)[0].shape, x.shape)
+        self.assertTrue(torch.all(x != test(x=x)[0]))
+
+    def test_wrong_output_annotation(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["b"]) -> ShapedTensor["1"]:
+            return x + 1
+        
+        with self.assertRaises(IncompatibleShapeError):
+            x = torch.zeros(8)
+            self.assertTupleEqual(test(x=x).shape, x.shape)
+            self.assertTrue(torch.all(x != test(x=x)))
+
+    def test_wrong_output_annotation_more_dimensions(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["b"]) -> ShapedTensor["1 b 2 3"]:
+            return x + 1
+        
+        with self.assertRaises(IncompatibleShapeError):
+            x = torch.zeros(8)
+            self.assertTupleEqual(test(x=x).shape, x.shape)
+            self.assertTrue(torch.all(x != test(x=x)))
+
+    def test_wrong_output_annotation_less_dimensions(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["b 1 1 2"]) -> ShapedTensor["1"]:
+            return x + 1
+        
+        with self.assertRaises(IncompatibleShapeError):
+            x = torch.zeros(8, 1, 1, 2)
+            self.assertTupleEqual(test(x=x).shape, x.shape)
+            self.assertTrue(torch.all(x != test(x=x)))
+
+
+    def test_wrong_output_annotation_tuple(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["b"]) -> tuple[ShapedTensor["1"], ShapedTensor["b"]]:
+            return (x + 1, x + 2)
+        
+        with self.assertRaises(IncompatibleShapeError):
+            x = torch.zeros(8)
+            self.assertTupleEqual(test(x=x)[0].shape, x.shape)
+            self.assertTrue(torch.all(x != test(x=x)[0]))
+
+    def test_wrong_output_annotation_tuple_more_dimensions(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["b"]) -> tuple[ShapedTensor["1 b"], ShapedTensor["2 b"]]:
+            return (x + 1, x + 2)
+        
+        with self.assertRaises(IncompatibleShapeError):
+            x = torch.zeros(8)
+            self.assertTupleEqual(test(x=x)[0].shape, x.shape)
+            self.assertTrue(torch.all(x != test(x=x)[0]))
+
+    def test_wrong_output_annotation_tuple_less_dimensions(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["b 1 2 3"]) -> tuple[ShapedTensor["b"], ShapedTensor["b"]]:
+            return (x + 1, x + 2)
+        
+        with self.assertRaises(IncompatibleShapeError):
+            x = torch.zeros(8, 1, 2, 3)
+            self.assertTupleEqual(test(x=x)[0].shape, x.shape)
+            self.assertTrue(torch.all(x != test(x=x)[0]))
+
             
 class TestNDAnnotations(unittest.TestCase):
     def test_constant_nd_input_shape_checked(self):
@@ -311,7 +390,7 @@ class TestClassFunctionality(unittest.TestCase):
                 x: ShapedTensor["b 3"],
                 y: ShapedTensor["b"]
             ) -> ShapedTensor["b"]:
-                return super().my_method(x, y).sum(dim=1)
+                return super().my_method(x=x, y=y).sum(dim=1)
         
         with self.assertWarns(RuntimeWarning):
             SubTest().my_method(x=torch.zeros(17, 3), y=torch.zeros(17))
