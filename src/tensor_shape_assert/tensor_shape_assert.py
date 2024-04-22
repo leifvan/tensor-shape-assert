@@ -45,6 +45,8 @@ class VariableAssertionError(RuntimeError):
 class IllegalPositionalArgumentError(ValueError):
     pass
 
+class MissingOutputError(ValueError):
+    pass
 
 def do_shapes_match(a: tuple[int | str, ...], b: tuple[int | str, ...]):
     if len(a) != len(b):
@@ -245,14 +247,20 @@ def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: boo
                         isinstance(a, tuple) for a in fn.__annotations__["return"].__args__
                     ):
                         # assure that no tuple of tensors is annotated here
-                        raise RuntimeError(
-                            "Function return annotation is a tuple of at least one "
-                            "shape annotation, but the function returned a single "
-                            "tensor."
+                        raise MissingOutputError(
+                            f"Return annotation of function {fn.__name__} is a tuple, "
+                            f"but the function returned a single tensor."
                         )
                     
                 else: # expect a tuple of annotations
                     output_annotations = fn.__annotations__["return"].__args__
+
+                    if len(output) < len(output_annotations):
+                        raise MissingOutputError(
+                            f"Expected a tuple of length {len(output_annotations)} as output of "
+                            f"function {fn.__name__}, but only {len(output)} elements are returned."
+                        )
+
                     valid_idxs = [i for i, a in enumerate(output_annotations)
                                   if isinstance(a, tuple)]  # tuple means converted string annotation here
                     

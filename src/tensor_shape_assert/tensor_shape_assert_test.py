@@ -1,6 +1,6 @@
 import unittest
 import torch
-from tensor_shape_assert import check_tensor_shapes, ShapedTensor, IncompatibleShapeError
+from tensor_shape_assert import check_tensor_shapes, ShapedTensor, IncompatibleShapeError, MissingOutputError
 
 class Test1DAnnotations(unittest.TestCase):
     def test_constant_1d_input_shape_checked(self):
@@ -78,6 +78,24 @@ class Test1DAnnotations(unittest.TestCase):
             self.assertTupleEqual(test(x=x).shape, x.shape)
             self.assertTrue(torch.all(x != test(x=x)))
 
+    def test_wrong_output_annotation_one_item(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["b"]) -> tuple[ShapedTensor["1"], ShapedTensor["2"]]:
+            return x + 1
+        
+        with self.assertRaises(MissingOutputError):
+            x = torch.zeros(8)
+            test(x=x)
+
+    def test_wrong_output_annotation_multiple_items(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["b"]) -> tuple[ShapedTensor["1"], ShapedTensor["2"], ShapedTensor["3"]]:
+            return (x + 1, x + 2)
+        
+        with self.assertRaises(MissingOutputError):
+            x = torch.zeros(8)
+            test(x=x)
+
     def test_wrong_output_annotation_more_dimensions(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["b"]) -> ShapedTensor["1 b 2 3"]:
@@ -128,6 +146,8 @@ class Test1DAnnotations(unittest.TestCase):
             x = torch.zeros(8, 1, 2, 3)
             self.assertTupleEqual(test(x=x)[0].shape, x.shape)
             self.assertTrue(torch.all(x != test(x=x)[0]))
+
+
 
             
 class TestNDAnnotations(unittest.TestCase):
