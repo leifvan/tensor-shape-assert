@@ -1,1 +1,2 @@
-from .tensor_shape_assert import check_tensor_shapes, ShapedTensor, IncompatibleShapeError
+from .tensor_shape_assert import check_tensor_shapes, ShapedTensor, get_shape_variables
+from .tensor_shape_assert import IncompatibleShapeError, MissingOutputError, NoVariableContextExistsError

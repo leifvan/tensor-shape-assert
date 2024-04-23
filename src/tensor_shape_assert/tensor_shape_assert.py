@@ -48,6 +48,11 @@ class IllegalPositionalArgumentError(ValueError):
 class MissingOutputError(ValueError):
     pass
 
+class NoVariableContextExistsError(RuntimeError):
+    pass
+
+_current_variables_stack = []
+
 def do_shapes_match(a: tuple[int | str, ...], b: tuple[int | str, ...]):
     if len(a) != len(b):
         return False
@@ -128,13 +133,13 @@ def assert_shapes(
 
 
 def str_to_shape_descriptor(s: str):
-    s = s.replace(",", "").replace("(", "").replace(")", "")
+    s = s.replace(",", " ").replace("(", " ").replace(")", " ").replace("[", " ").replace("]", " ")
     result = []
     
     for i in s.split(" "):
         if i == "...":
             result.append(Ellipsis)
-        else:
+        elif len(i) > 0:
             try:
                 result.append(int(i))
             except ValueError:
@@ -224,8 +229,14 @@ def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: boo
             if verbose:
                 print("Input variable assertions check successful.")
 
+            # store variables in global stack
+            _current_variables_stack.append(dict(variables)) # copy dict
+
             # call function
             output = fn(*args, **kwargs)
+
+            # remove variables again
+            _current_variables_stack.pop()
 
             # check output type if annotated
             if "return" in fn.__annotations__:
@@ -296,3 +307,25 @@ def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: boo
             return output
         return check_wrapper
     return wrapper_factory
+
+def get_shape_variables(names: str) -> tuple[int, ...]:
+    """
+    Returns the inferred values of the tensor shape variables of the innermost
+    function wrapped with check_tensor_shapes.
+
+    :param names: A shape-descriptor string. See ``ShapedTensor`` for details.
+    :return: A tuple of integers representing the inferred values of the variables
+        given in ``names``.
+    """
+
+    if len(_current_variables_stack) == 0:
+        raise NoVariableContextExistsError(
+            "get_shape_variables was called without any check_tensor_shapes "
+            "wrapped function in the call stack. No variables can be retrieved "
+            "here."
+        )
+    var_names = names.split(" ")
+    values = tuple(_current_variables_stack[-1].get(name, None) for name in var_names)
+    if len(values) == 1:
+        return values[0]
+    return values

@@ -1,6 +1,6 @@
 import unittest
 import torch
-from tensor_shape_assert import check_tensor_shapes, ShapedTensor, IncompatibleShapeError, MissingOutputError
+from tensor_shape_assert import check_tensor_shapes, ShapedTensor, IncompatibleShapeError, MissingOutputError, get_shape_variables, NoVariableContextExistsError
 
 class Test1DAnnotations(unittest.TestCase):
     def test_constant_1d_input_shape_checked(self):
@@ -415,6 +415,23 @@ class TestClassFunctionality(unittest.TestCase):
         with self.assertWarns(RuntimeWarning):
             SubTest().my_method(x=torch.zeros(17, 3), y=torch.zeros(17))
 
+
+class TestTensorDescriptor(unittest.TestCase):
+    def test_multiple_whitespaces_ignored(self):
+        def test(x: ShapedTensor["a   b c  "]) -> ShapedTensor[" b   "]:
+            return x.mean(dim=0)[:, 0]
+        test(x=torch.zeros(3, 4, 5))
+    
+    def test_commas_ignored(self):
+        def test(x: ShapedTensor["a,b,c"]) -> ShapedTensor["b,,"]:
+            return x.mean(dim=0)[:, 0]
+        test(x=torch.zeros(3, 4, 5))
+
+    def test_parentheses_ignored(self):
+        def test(x: ShapedTensor["(a (b[c))"]) -> ShapedTensor["(b]("]:
+            return x.mean(dim=0)[:, 0]
+        test(x=torch.zeros(3, 4, 5))
+
         
 class TestMisc(unittest.TestCase):
     def test_instantiating(self):
@@ -430,6 +447,46 @@ class TestMisc(unittest.TestCase):
             test(torch.zeros(1))
 
 
+class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
+    def test_single_context(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["a b"]) -> ShapedTensor["a"]:
+            a, b = get_shape_variables("a b")
+            self.assertTupleEqual(x.shape, (a, b))
+            return x.sum(dim=1)
+        
+        test(x=torch.ones(5, 6))
 
+    def test_nested_context(self):
+        x_input = torch.ones(5, 6, 7)
+
+        @check_tensor_shapes()
+        def sum_plus_one(x: ShapedTensor["a b"]) -> ShapedTensor["b"]:
+            a, b = get_shape_variables("a b")
+            self.assertTupleEqual(x_input.shape[1:], (a, b))
+            return x.sum(dim=0) + 1
+
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["a b c"]) -> ShapedTensor["c"]:
+            a, b, c = get_shape_variables("a b c")
+            self.assertTupleEqual(x_input.shape, (a, b, c))
+            y = sum_plus_one(x=x[0])
+            return y
+        
+        test(x=x_input)
+
+    def test_error_on_no_context(self):
+        with self.assertRaises(NoVariableContextExistsError):
+            a, b = get_shape_variables("a b")
+
+    def test_unknown_variable_is_none(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["a b"]) -> ShapedTensor["a"]:
+            c = get_shape_variables("c")
+            self.assertIsNone(c)
+            return x.sum(dim=1)
+        
+        test(x=torch.ones(5, 6))
+        
 if __name__ == "__main__":
     unittest.main()
