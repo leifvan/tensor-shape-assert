@@ -488,9 +488,15 @@ class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
         
         test(x=torch.ones(5, 6))
 
-    def test_comma_whitespace_parentheses_ignored(self):
-        with self.assertRaises(NoVariableContextExistsError):
+    def test_single_context(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["a b"]) -> ShapedTensor["a"]:
             a, b = get_shape_variables(" a  (]) [[b    ")
+            self.assertTupleEqual(x.shape, (a, b))
+            return x.sum(dim=1)
+        
+        test(x=torch.ones(5, 6))
+
 
 if __name__ == "__main__":
     unittest.main()
