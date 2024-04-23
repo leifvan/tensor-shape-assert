@@ -487,6 +487,10 @@ class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
             return x.sum(dim=1)
         
         test(x=torch.ones(5, 6))
-        
+
+    def test_comma_whitespace_parentheses_ignored(self):
+        with self.assertRaises(NoVariableContextExistsError):
+            a, b = get_shape_variables(" a  (]) [[b    ")
+
 if __name__ == "__main__":
     unittest.main()

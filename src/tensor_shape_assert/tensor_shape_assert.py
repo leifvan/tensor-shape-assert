@@ -324,7 +324,7 @@ def get_shape_variables(names: str) -> tuple[int, ...]:
             "wrapped function in the call stack. No variables can be retrieved "
             "here."
         )
-    var_names = names.split(" ")
+    var_names = str_to_shape_descriptor(names)
     values = tuple(_current_variables_stack[-1].get(name, None) for name in var_names)
     if len(values) == 1:
         return values[0]
