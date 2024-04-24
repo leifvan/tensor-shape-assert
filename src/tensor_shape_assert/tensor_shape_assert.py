@@ -262,8 +262,8 @@ def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: boo
                             f"Return annotation of function {fn.__name__} is a tuple, "
                             f"but the function returned a single tensor."
                         )
-                    
-                else: # expect a tuple of annotations
+
+                elif getattr(fn.__annotations__["return"], "__origin__", None) == tuple: # expect a tuple of annotations
                     output_annotations = fn.__annotations__["return"].__args__
 
                     if len(output) < len(output_annotations):

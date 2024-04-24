@@ -1,3 +1,4 @@
+from typing import Callable
 import unittest
 import torch
 from tensor_shape_assert import check_tensor_shapes, ShapedTensor, IncompatibleShapeError, MissingOutputError, get_shape_variables, NoVariableContextExistsError
@@ -445,6 +446,34 @@ class TestMisc(unittest.TestCase):
                 return x
             
             test(torch.zeros(1))
+
+    def test_misc_annotations_ignored(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["1"]) -> str:
+            return "hi"
+        
+        test(torch.zeros(1))
+
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["1"]) -> tuple[int, int, str]:
+            return 1, 2, "hi"
+        
+        test(torch.zeros(1))
+
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["1"]) -> list[str]:
+            return ["hi", "bye"]
+        
+        test(torch.zeros(1))
+
+        @check_tensor_shapes(verbose=True)
+        def test(x: ShapedTensor["1"]) -> Callable[[str, str], int]:
+            def _test(a: str, b: str) -> int:
+                return len(a) + len(b)
+            return _test
+        
+        test(torch.zeros(1))
+
 
 
 class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
