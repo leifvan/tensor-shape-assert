@@ -170,8 +170,18 @@ def check_variable_assertions(variable_assertions: dict[str, Callable] | None, v
                 if not assert_success:
                         raise VariableAssertionError(f"An assertion failed for variables {variables}")
 
-def check_tensor_shapes(variable_assertions: list[Callable] = None, verbose: bool = False, ignore_args: bool = False):
-    def wrapper_factory(fn):
+def check_tensor_shapes(
+        variable_assertions: list[Callable] = None,
+        verbose: bool = False,
+        ignore_args: bool = False
+):
+    def wrapper_factory(fn=None, *args, **kwargs):
+        if fn is None or len(args) > 0 or len(kwargs) > 0:
+            raise TypeError(
+                "Invalid arguments for check_tensor_shapes. Maybe you forgot "
+                "brackets after the decorator?"
+            )
+
         @wraps(fn)
         def check_wrapper(*args, **kwargs):
 

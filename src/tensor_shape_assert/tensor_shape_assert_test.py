@@ -452,27 +452,37 @@ class TestMisc(unittest.TestCase):
         def test(x: ShapedTensor["1"]) -> str:
             return "hi"
         
-        test(torch.zeros(1))
+        test(x=torch.zeros(1))
 
         @check_tensor_shapes()
         def test(x: ShapedTensor["1"]) -> tuple[int, int, str]:
             return 1, 2, "hi"
         
-        test(torch.zeros(1))
+        test(x=torch.zeros(1))
 
         @check_tensor_shapes()
         def test(x: ShapedTensor["1"]) -> list[str]:
             return ["hi", "bye"]
         
-        test(torch.zeros(1))
+        test(x=torch.zeros(1))
 
-        @check_tensor_shapes(verbose=True)
+        @check_tensor_shapes()
         def test(x: ShapedTensor["1"]) -> Callable[[str, str], int]:
             def _test(a: str, b: str) -> int:
                 return len(a) + len(b)
             return _test
         
-        test(torch.zeros(1))
+        test(x=torch.zeros(1))
+
+    def test_helpful_error_message_when_brackets_missing(self):
+        @check_tensor_shapes
+        def test(x: ShapedTensor["a"]) -> ShapedTensor["b"]:
+            return x[1:]
+        
+        with self.assertRaises(TypeError) as cm:
+            test(x=torch.zeros(5))
+        
+        self.assertIn("Maybe you forgot brackets", str(cm.exception))
 
 
 
