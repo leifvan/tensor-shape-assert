@@ -1,6 +1,7 @@
 from typing import Callable
 import warnings
 from functools import wraps
+import inspect
 
 try:
     import torch
@@ -131,6 +132,8 @@ def assert_shapes(
 
     return variables
 
+class ShapeDescriptor(tuple):
+    pass
 
 def str_to_shape_descriptor(s: str):
     s = s.replace(",", " ").replace("(", " ").replace(")", " ").replace("[", " ").replace("]", " ")
@@ -145,7 +148,7 @@ def str_to_shape_descriptor(s: str):
             except ValueError:
                 result.append(i)
                 
-    return tuple(result)
+    return ShapeDescriptor(result)
 
 
 class ShapedTensor(TensorType):
@@ -188,37 +191,33 @@ def check_tensor_shapes(
             if verbose:
                 print("-"*30)
                 print("Checking", fn.__name__)
+            
+            # get function signature
+            signature = inspect.signature(fn)
 
-            if len(args) == 1:
-                warnings.warn(RuntimeWarning(
-                    "Tensor shape checking currently does not support positional "
-                    "parameters. Pass all parameters with keywords instead. "
-                    "You can ignore this message if you decorate a method, as "
-                    "'self' is a positional parameter."
-                ))
-            elif len(args) > 1 and not ignore_args:
-                raise IllegalPositionalArgumentError(
-                    "Tensor shape checking currently does not support positional "
-                    "parameters. Pass all parameters with keywords instead."
-                )
+            # bind parameters (maps parameter names to values)
+            bindings = signature.bind(*args, **kwargs)
+            bindings.apply_defaults()
+            bound_arguments = dict(bindings.arguments)
 
             # collect type hints
             expected_shapes_dict = {
-                k: v
-                for k, v in fn.__annotations__.items()
-                if isinstance(v, tuple) and k in kwargs
+                k: p.annotation
+                for k, p in signature.parameters.items()
+                if isinstance(p.annotation, ShapeDescriptor) and k in bound_arguments
             }
+
             sorted_keys = list(expected_shapes_dict)
 
             if verbose:
                 print(f"Collected {len(sorted_keys)} input shapes (and expected shapes)")
                 for k in sorted_keys:
-                    print(" ->", k, kwargs[k].shape, expected_shapes_dict[k])
+                    print(" ->", k, bound_arguments[k].shape, expected_shapes_dict[k])
 
             # check input shapes
             try:
                 variables = assert_shapes(
-                    actual_shapes=tuple(kwargs[k].shape for k in sorted_keys),
+                    actual_shapes=tuple(bound_arguments[k].shape for k in sorted_keys),
                     expected_shapes=tuple(expected_shapes_dict[k] for k in sorted_keys),
                 )
             except IncompatibleShapeError as e:

@@ -1,9 +1,11 @@
 from typing import Callable
 import unittest
 import torch
+import inspect
 from tensor_shape_assert import check_tensor_shapes, ShapedTensor, IncompatibleShapeError, MissingOutputError, get_shape_variables, NoVariableContextExistsError
 
-class Test1DAnnotations(unittest.TestCase):
+
+class Test1DAnnotationsKeyword(unittest.TestCase):
     def test_constant_1d_input_shape_checked(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["5"]) -> ShapedTensor["2"]:
@@ -11,7 +13,7 @@ class Test1DAnnotations(unittest.TestCase):
         
         x = torch.zeros(5)
         self.assertTupleEqual(test(x=x).shape, (2,))
-        
+
     def test_constant_1d_input_shape_error(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["5"]) -> ShapedTensor["2"]:
@@ -147,11 +149,8 @@ class Test1DAnnotations(unittest.TestCase):
             x = torch.zeros(8, 1, 2, 3)
             self.assertTupleEqual(test(x=x)[0].shape, x.shape)
             self.assertTrue(torch.all(x != test(x=x)[0]))
-
-
-
             
-class TestNDAnnotations(unittest.TestCase):
+class TestNDAnnotationsKeyword(unittest.TestCase):
     def test_constant_nd_input_shape_checked(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["5 1"], y: ShapedTensor["1 3"]) -> ShapedTensor["2"]:
@@ -219,7 +218,7 @@ class TestNDAnnotations(unittest.TestCase):
             test(x=x, y=y)
             
             
-class TestArbitraryBatchDimAnnotations(unittest.TestCase):
+class TestArbitraryBatchDimAnnotationsKeyword(unittest.TestCase):
     def test_constant_nd_arbitrary_batch_input_shape_checked(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["... 5 1"], y: ShapedTensor["... 1 3"]) -> ShapedTensor["... 2"]:
@@ -358,12 +357,10 @@ class TestClassFunctionality(unittest.TestCase):
             ):
                 return x + y[:, None]
         
-        with self.assertWarns(RuntimeWarning):
-            Test().my_method(x=torch.zeros(17, 3), y=torch.zeros(17))
+        Test().my_method(x=torch.zeros(17, 3), y=torch.zeros(17))
         
-        with self.assertWarns(RuntimeWarning):
-            with self.assertRaises(IncompatibleShapeError):
-                Test().my_method(x=torch.zeros(17, 4), y=torch.zeros(17))
+        with self.assertRaises(IncompatibleShapeError):
+            Test().my_method(x=torch.zeros(17, 4), y=torch.zeros(17))
 
     def test_constructor_annotation(self):
         class Test:
@@ -371,12 +368,10 @@ class TestClassFunctionality(unittest.TestCase):
             def __init__(self, x: ShapedTensor["b 3"], y: ShapedTensor["b"]):
                 self.z = x + y[:, None]
         
-        with self.assertWarns(RuntimeWarning):
-            Test(x=torch.zeros(17, 3), y=torch.zeros(17))
+        Test(x=torch.zeros(17, 3), y=torch.zeros(17))
 
-        with self.assertWarns(RuntimeWarning):
-            with self.assertRaises(IncompatibleShapeError):
-                Test(x=torch.zeros(17, 4), y=torch.zeros(17))
+        with self.assertRaises(IncompatibleShapeError):
+            Test(x=torch.zeros(17, 4), y=torch.zeros(17))
 
     def test_inherited_method_annotation(self):
         class Test:
@@ -391,8 +386,7 @@ class TestClassFunctionality(unittest.TestCase):
         class SubTest(Test):
             pass
         
-        with self.assertWarns(RuntimeWarning):
-            SubTest().my_method(x=torch.zeros(17, 3), y=torch.zeros(17))
+        SubTest().my_method(x=torch.zeros(17, 3), y=torch.zeros(17))
 
     def test_overridden_method_annotation(self):
         class Test:
@@ -413,8 +407,7 @@ class TestClassFunctionality(unittest.TestCase):
             ) -> ShapedTensor["b"]:
                 return super().my_method(x=x, y=y).sum(dim=1)
         
-        with self.assertWarns(RuntimeWarning):
-            SubTest().my_method(x=torch.zeros(17, 3), y=torch.zeros(17))
+        SubTest().my_method(x=torch.zeros(17, 3), y=torch.zeros(17))
 
 
 class TestTensorDescriptor(unittest.TestCase):
@@ -438,14 +431,6 @@ class TestMisc(unittest.TestCase):
     def test_instantiating(self):
         with self.assertRaises(RuntimeError):
             ShapedTensor()
-            
-    def test_keyword_only(self):
-        with self.assertWarns(RuntimeWarning):
-            @check_tensor_shapes()
-            def test(x: ShapedTensor["1"]):
-                return x
-            
-            test(torch.zeros(1))
 
     def test_misc_annotations_ignored(self):
         @check_tensor_shapes()
@@ -535,6 +520,18 @@ class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
             return x.sum(dim=1)
         
         test(x=torch.ones(5, 6))
+
+
+class TestPositionalAndMixedArguments(unittest.TestCase):
+    def test_positional_only(self):
+        def test(x: ShapedTensor["c 3"], y: ShapedTensor["3 c"]) -> ShapedTensor["c c"]:
+            return x @ y
+        test(torch.zeros(5, 3), torch.ones(3, 5))
+
+    def test_mixed_positional_and_kwargs(self):
+        def test(x: ShapedTensor["c 3"], y: ShapedTensor["3 c"]) -> ShapedTensor["c c"]:
+            return x @ y
+        test(torch.zeros(5, 3), y=torch.ones(3, 5))
 
 
 if __name__ == "__main__":
