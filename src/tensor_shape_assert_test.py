@@ -1,9 +1,9 @@
-from typing import Callable
+from typing import Callable, Union
 import unittest
 import torch
 from tensor_shape_assert.wrapper import check_tensor_shapes, ShapedTensor, get_shape_variables, assert_shape_here
 from tensor_shape_assert.utils import TensorShapeAssertError
-from tensor_shape_assert.wrapper import NoVariableContextExistsError
+from tensor_shape_assert.wrapper import NoVariableContextExistsError, VariableConstraintError
 
 
 class Test1DAnnotationsKeyword(unittest.TestCase):
@@ -426,18 +426,21 @@ class TestClassFunctionality(unittest.TestCase):
 
 
 class TestTensorDescriptor(unittest.TestCase):
+    @check_tensor_shapes()
     def test_multiple_whitespaces_ignored(self):
         def test(x: ShapedTensor["a   b c  "]) -> ShapedTensor[" b   "]:
             return x.mean(dim=0)[:, 0]
         test(x=torch.zeros(3, 4, 5))
     
     def test_commas_ignored(self):
+        @check_tensor_shapes()
         def test(x: ShapedTensor["a,b,c"]) -> ShapedTensor["b,,"]:
             return x.mean(dim=0)[:, 0]
         test(x=torch.zeros(3, 4, 5))
 
     def test_parentheses_ignored(self):
-        def test(x: ShapedTensor["(a (b[c))"]) -> ShapedTensor["(b]("]:
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["a b[c"]) -> ShapedTensor["b]"]:
             return x.mean(dim=0)[:, 0]
         test(x=torch.zeros(3, 4, 5))
 
@@ -476,7 +479,7 @@ class TestMisc(unittest.TestCase):
 
     def test_helpful_error_message_when_brackets_missing(self):
         
-        with self.assertRaises(TypeError) as cm:
+        with self.assertRaises(TensorShapeAssertError) as cm:
             @check_tensor_shapes
             def test(x: ShapedTensor["a"]) -> ShapedTensor["b"]:
                 return x[1:]
@@ -532,7 +535,7 @@ class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
     def test_single_context(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["a b"]) -> ShapedTensor["a"]:
-            a, b = get_shape_variables(" a  (]) [[b    ")
+            a, b = get_shape_variables(" a  ] [[b    ")
             self.assertTupleEqual(x.shape, (a, b))
             return x.sum(dim=1)
         
@@ -717,6 +720,49 @@ class TestOptionalShapeAnnotation(unittest.TestCase):
         
         with self.assertWarns(RuntimeWarning):
             test(torch.zeros(2, 1))        
+
+class TestVariableConstraints(unittest.TestCase):
+    def test_lambda_constraints(self):
+        @check_tensor_shapes(constraints=[lambda v: v['a'] + v['b']==5])
+        def test(a: ShapedTensor["a"], b: ShapedTensor["b"]) -> float:
+            return a[0] + b[0]
+        
+        test(torch.zeros(3), torch.zeros(2))
+        test(torch.zeros(1), torch.zeros(4))
+
+        with self.assertRaises(VariableConstraintError):
+            test(torch.zeros(3), torch.zeros(3))
+
+    def test_str_expression_constraints(self):
+        @check_tensor_shapes(constraints=["a + b = c"])
+        def test(a: ShapedTensor["a"], b: ShapedTensor["b"]) -> ShapedTensor["c"]:
+            return torch.cat([a, b], dim=0)
+        
+        test(torch.zeros(3), torch.zeros(2))
+        test(torch.zeros(1), torch.zeros(4))
+
+        @check_tensor_shapes(constraints=["a + b = c"])
+        def test(a: ShapedTensor["a"], b: ShapedTensor["b"]) -> ShapedTensor["c"]:
+            return torch.cat([a, b, torch.zeros(1)], dim=0)
+        
+        with self.assertRaises(VariableConstraintError):
+            test(torch.zeros(3), torch.zeros(3))
+
+    def test_autogen_constraints(self):
+        @check_tensor_shapes(experimental_enable_autogen_constraints=True)
+        def test(a: ShapedTensor["a"], b: ShapedTensor["b"]) -> ShapedTensor["a+b"]:
+            return torch.cat([a, b], dim=0)
+        
+        test(torch.zeros(3), torch.zeros(2))
+        test(torch.zeros(1), torch.zeros(4))
+
+        @check_tensor_shapes(experimental_enable_autogen_constraints=True)
+        def test(a: ShapedTensor["a"], b: ShapedTensor["b"]) -> ShapedTensor["a+b"]:
+            return torch.cat([a, b, torch.zeros(1)], dim=0)
+        
+        with self.assertRaises(VariableConstraintError):
+            test(torch.zeros(3), torch.zeros(3))
+        
 
 
 if __name__ == "__main__":

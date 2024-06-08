@@ -15,13 +15,13 @@ def is_multi_dim_descriptor(s: str):
 
 # ignore all punctuation except dots and asterisks
 
-IGNORED_CHARS = "!\"#$%&'()+,-/:;<=>?@[\\]^_`{|}~"
+IGNORED_CHARS = "!\"#$%&',:;<=>?@[\\]^_`{|}~"
 
 def clean_up_descriptor(shape_descriptor: str):
     # remove ignored chars
     clean_shape_descriptor = shape_descriptor
     for ignored_char in IGNORED_CHARS:
-        clean_shape_descriptor = clean_shape_descriptor.replace(ignored_char, '')
+        clean_shape_descriptor = clean_shape_descriptor.replace(ignored_char, ' ')
 
     # throw an error if there are more than 3 dots in a row
     if '....' in clean_shape_descriptor:
@@ -38,13 +38,6 @@ def clean_up_descriptor(shape_descriptor: str):
 
     # remove multiple spaces
     tokens = [t for t in tokens if len(t) > 0]
-
-    # throw an error if there are tokens with a wildcard and other chars
-    if any(len(t) > 1 and '*' in t for t in tokens):
-        raise DescriptorValidationError(
-            f"Found a descriptor item that contains the wildcard char '*' "
-            f"together with other items while parsing '{shape_descriptor}'."
-        )
 
     return ' '.join(tokens)
 

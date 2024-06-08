@@ -1,11 +1,11 @@
 from functools import wraps
 import types
 import inspect
-from typing import Any
+from typing import Any, Callable
 import warnings
 
 from .utils import TensorShapeAssertError
-from .descriptor import descriptor_to_variables, split_to_descriptor_items
+from .descriptor import descriptor_to_variables, split_to_descriptor_items, clean_up_descriptor
 
 # define errors
 
@@ -14,6 +14,10 @@ class NoVariableContextExistsError(TensorShapeAssertError):
 
 class AnnotationMatchingError(TensorShapeAssertError):
     pass
+
+class VariableConstraintError(TensorShapeAssertError):
+    pass
+
 
 # try importing torch for type hints
 
@@ -28,16 +32,42 @@ except ImportError:
 
 # define str subclasses to identify shape descriptors
 
-class ShapeDescriptor(str):
+class ShapeDescriptor:
+    def __init__(self, s: str) -> None:
+        self.s = s
+
     def __or__(self, value: Any) -> types.GenericAlias:
         if value is not None:
             assert False
-        return OptionalShapeDescriptor(self)
+        return OptionalShapeDescriptor(self.s)
     
-class OptionalShapeDescriptor(str):
+    def __str__(self) -> str:
+        return self.s
+    
+class OptionalShapeDescriptor(ShapeDescriptor):
     pass
 
 class ShapedTensor(TensorType):
+    """
+    A helper class that allows to annotate a string that describes the shape
+    of the annotated object and is then considered by the
+    ``check_tensor_shapes`` wrapper. Use the generics syntax
+    ``ShapedTensor[<desc>]`` to annotate the objects, where ``<desc>`` is a
+    string which contains a whitespace-separated list of shape descriptions
+    for each of the dimensions. More particularly these dimension descriptors
+    may be
+     * an integer, to test against a fixed size,
+     * ``'*'`` to denote an arbitrary size along that dimension,
+     * ``'...'`` followed by an optional name to denote an arbitrary number of
+       dimensions (only allowed once per shape),
+     * a string that does not fulfill any of the  rules above, which is then
+       interpreted as a variable and checked for equality across all annotated 
+       arguments and return values of the function.
+
+    Note that most punctuation is replaced with whitespaces, so for example
+    it is also possible use a comma-separated list like
+    ``ShapedTensor["a,b,c"]`` instead of ``ShapedTensor["a b c"]``.
+    """
     def __init__(self, *args, **kwargs):
         raise RuntimeError(
             "ShapedTensor instances are only meant for annotation. "
@@ -108,7 +138,7 @@ def check_iterable(annotation, obj, variables):
 
         # check shape
         variables = descriptor_to_variables(
-            shape_descriptor=descriptor,
+            shape_descriptor=str(descriptor),
             shape=obj.shape,
             variables=variables
         )
@@ -118,20 +148,82 @@ def check_iterable(annotation, obj, variables):
 # define a module level stack for currently declared variables
 _current_variables_stack = []
 
-def check_tensor_shapes(*args, **kwargs):
+
+def run_expression_constraint(
+        expression: str,
+        variables: dict[str, int]
+) -> bool:
+    if "=" not in expression:
+        assert False
+    if "==" not in expression:
+        expression = expression.replace("=", "==")
+
+    exec_globals = {'__builtins__': {}, **variables}
+    return eval(expression, exec_globals)
+
+def check_constraints(
+        constraints: list[Callable[[dict[str, int]], bool] | str],
+        variables: dict[str, int],
+        skip_on_error: bool
+):
+    for i, constraint_fn in enumerate(constraints):
+        try:
+            if isinstance(constraint_fn, str):
+                passed = run_expression_constraint(constraint_fn, variables)
+                name = f"{i} [{constraint_fn}]"
+            else:
+                passed = constraint_fn(variables)
+                name = f"{i}"
+        except Exception:
+            if skip_on_error:
+                passed = True
+            else:
+                raise
+
+        if not passed:
+            raise VariableConstraintError(
+                f"Constraint {name} was not fulfilled for variable "
+                f"assignments {variables}."
+            )
+
+
+def check_tensor_shapes(
+        constraints: list[str | Callable[[dict[str, int]], bool]] = None,
+        experimental_enable_autogen_constraints: bool = False,
+        *args, **kwargs
+):
     """
     Enables tensor checking for the decorated function.
+
+    Parameters
+    ----------
+
+    constraints : list, optional
+        A list of string expressions or callables that are
+        run for the variable assignments before and after the wrapped function
+        is called. If callables are given, they receive the variable assignments
+        as a dictionary and are expected to return ``True`` if the constraint
+        is fullfilled, ``False`` otherwise.
+    experimental_enable_autogen_constraints : bool, optional
+        If ``True``, all variable names will be compiled as constraints. This
+        comes with two caveats: First of all, as names are split by whitespaces,
+        naming the variables as expressions does not support any whitespaces.
+        Additionally, variable names must follow the Python variable naming
+        conventions.
     """
 
     if len(args) > 0 or len(kwargs) > 0:
-        raise TypeError(
+        raise TensorShapeAssertError(
             "Invalid arguments for check_tensor_shapes. Maybe you forgot "
             "brackets after the decorator?"
         )
     
-    def _make_check_tensor_shapes_wrapper(fn, *args, **kwargs):
+    if constraints is None:
+        constraints = []
+    
+    def _make_check_tensor_shapes_wrapper(fn=None, *args, **kwargs):
         if fn is None or len(args) > 0 or len(kwargs) > 0:
-            raise TypeError(
+            raise TensorShapeAssertError(
                 "Invalid arguments for check_tensor_shapes. Maybe you forgot "
                 "brackets after the decorator?"
             )
@@ -166,6 +258,19 @@ def check_tensor_shapes(*args, **kwargs):
                         f"Shape assertion failed during check of input "
                         f"parameter '{key}'."
                     )
+                
+            # check input variable constraints (allow errors for now)
+            check_constraints(constraints, variables, skip_on_error=True)
+
+            if experimental_enable_autogen_constraints:
+                for i, (k, v) in enumerate(variables.items()):
+                    temp_variables = dict(variables)
+                    temp_replace_name = f"__temp_var_{i}"
+                    temp_replace_val = temp_variables[k]
+                    del temp_variables[k]
+                    temp_variables[temp_replace_name] = temp_replace_val
+                    temp_constraint = f"{temp_replace_name} == {k}"
+                    check_constraints([temp_constraint], temp_variables, skip_on_error=True)
 
             # store variables in global stack
             _current_variables_stack.append(variables)
@@ -192,6 +297,19 @@ def check_tensor_shapes(*args, **kwargs):
                     f"Shape assertion failed during check of function output."
                 )
             finally:
+                # check output variable constraints (this time strictly)
+                check_constraints(constraints, variables, skip_on_error=False)
+
+                if experimental_enable_autogen_constraints:
+                    for i, (k, v) in enumerate(variables.items()):
+                        temp_variables = dict(variables)
+                        temp_replace_name = f"__temp_var_{i}"
+                        temp_replace_val = temp_variables[k]
+                        # del temp_variables[k]
+                        temp_variables[temp_replace_name] = temp_replace_val
+                        temp_constraint = f"{temp_replace_name} == {k}"
+                        check_constraints([temp_constraint], temp_variables, skip_on_error=False)
+
                 # remove vars from stack
                 _current_variables_stack.pop()
             
@@ -216,8 +334,16 @@ def get_shape_variables(names: str) -> tuple[int, ...]:
     Returns the inferred values of the tensor shape variables of the innermost
     function wrapped with check_tensor_shapes.
 
-    :param names: A shape-descriptor string. See ``ShapedTensor`` for details.
-    :return: A tuple of integers representing the inferred values of the variables
+    Parameters
+    ----------
+    
+    names : str
+        A shape descriptor string. See ``ShapedTensor`` for details.
+    
+    Returns
+    -------
+    tuple[int]
+        A tuple of integers representing the inferred values of the variables
         given in ``names``.
     """
     check_if_context_is_available()
@@ -240,6 +366,14 @@ def assert_shape_here(obj_or_shape: Any, descriptor: str) -> None:
     will be set to the appropriate value and are used in subsequent calls to
     functions accessing the states of the shape variables, which includes
     the check of the function's output.
+
+    Parameters
+    ----------
+    obj_or_shape
+        Either an object with a ``.shape`` property or a shape to be checked
+        against ``descriptor``.
+    descriptor : str
+        A shape descriptor string. See ``ShapedTensor`` for details.
     """
     check_if_context_is_available()
 
