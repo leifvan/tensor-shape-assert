@@ -13,14 +13,14 @@ class VariableMatchingError(TensorShapeAssertError):
 def is_multi_dim_descriptor(s: str):
     return isinstance(s, str) and s.startswith('...')
 
-# ignore all punctuation except dots and asterisks
+# ignore all punctuation except its a required char
 
-IGNORED_CHARS = "!\"#$%&',:;<=>?@[\\]^_`{|}~"
+WHITESPACE_CHARS = "!\"#$%&',:;<=>?@[\\]^`{|}~"
 
 def clean_up_descriptor(shape_descriptor: str):
     # remove ignored chars
     clean_shape_descriptor = shape_descriptor
-    for ignored_char in IGNORED_CHARS:
+    for ignored_char in WHITESPACE_CHARS:
         clean_shape_descriptor = clean_shape_descriptor.replace(ignored_char, ' ')
 
     # throw an error if there are more than 3 dots in a row

@@ -16,6 +16,13 @@ The return value can also be annotated in the same way. Additionally, the the an
 
 There are also convenience functions that access the current states of the shape variables inside the wrapped function. You can use ``get_shape_variables(<desc>)`` to retrieve a tuple of variable variables states directly, for example if you are inside a function where a tensor was annotated as ``x: ShapedTensor["a 3 b"]``, you can access the values of `a` and `b` as ``a, b = get_shape_variables("a b")``. You can even go one step further and do a check tensors inside the wrapped function directly with ``assert_shape_here(x, <desc>)``, which will run a check on the object or shape ``x`` given the descriptor and add previously unseen variables in the descriptor to the state inside the wrapped function. This way you can check the output of the function against tensor shapes that only appear in the body of the function.
 
+## Installation
+
+Currently, the package can only be installed directly from the repository with
+```bash
+pip install git+https://github.com/leifvan/tensor-shape-assert
+```
+
 ## Compatibility
 
 While the examples below are using PyTorch, tensor-shape-assert requires very minimal functionality and is compatible with any array class that has a ``shape`` method, which includes popular frameworks such as NumPy, TensorFlow, Jax and more generally frameworks that conform to the [Python array API standard](https://data-apis.org/array-api/latest/).
