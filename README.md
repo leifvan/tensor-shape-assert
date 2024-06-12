@@ -14,7 +14,9 @@ If multiple parameters are annotated with the same variable, the shapes must hav
 
 The return value can also be annotated in the same way. Additionally, the the annotations can be arbitrarily nested in tuples or lists. Optional ``ShapedTensor`` parameters must be explicitly annotated as a union with the ``NoneType`` (see examples below).
 
-There are also convenience functions that access the current states of the shape variables inside the wrapped function. You can use ``get_shape_variables(<desc>)`` to retrieve a tuple of variable variables states directly, for example if you are inside a function where a tensor was annotated as ``x: ShapedTensor["a 3 b"]``, you can access the values of `a` and `b` as ``a, b = get_shape_variables("a b")``. You can even go one step further and do a check tensors inside the wrapped function directly with ``assert_shape_here(x, <desc>)``, which will run a check on the object or shape ``x`` given the descriptor and add previously unseen variables in the descriptor to the state inside the wrapped function. This way you can check the output of the function against tensor shapes that only appear in the body of the function.
+Parameters of type ``int`` are added to the list of shape variables, which allows to specify fixed shapes dynamically. This behavior can be turned off with ``@check_tensor_shapes(ints_to_variables=False)``. An example is shown below.
+
+There are convenience functions that access the current states of the shape variables inside the wrapped function. You can use ``get_shape_variables(<desc>)`` to retrieve a tuple of variable variables states directly, for example if you are inside a function where a tensor was annotated as ``x: ShapedTensor["a 3 b"]``, you can access the values of `a` and `b` as ``a, b = get_shape_variables("a b")``. You can even go one step further and do a check tensors inside the wrapped function directly with ``assert_shape_here(x, <desc>)``, which will run a check on the object or shape ``x`` given the descriptor and add previously unseen variables in the descriptor to the state inside the wrapped function. This way you can check the output of the function against tensor shapes that only appear in the body of the function.
 
 ## Installation
 
@@ -59,6 +61,7 @@ my_simple_func(torch.zeros(5, 4, 3), y=torch.zeros(4, 3)) # fails
 ```
 the test fails, because `y` is expected to have length 2 in the second dimension.
 
+---
 ### Complex example
 
 The complex example additionally contains tuple and optional annotations.
@@ -124,3 +127,36 @@ my_complicated_func(
 ) # fails
 ```
 fails, because the batch dimension does not match between the first item in `x` (batch dim = `(3,6)`) and tensor `y` (batch dim = `(4,)`).
+
+---
+### Retrieve shape variables
+You can access the shape variable values using ``get_shape_variables`` like this
+```python
+@check_tensor_shapes()
+def my_func(x: ShapedTensor["n k 3"]):
+    n, k = get_shape_variables("n k")
+    print(k)
+my_func(torch.zeros(10, 9))  # prints "9"
+```
+
+---
+### int to variables
+If ``int`` parameters are present, they can be used inside the shape descriptors:
+```python
+@check_tensor_shapes()
+def my_func(x: ShapedTensor["n k"], k: int):
+    return x.sum(dim=1)
+
+my_func(torch.zeros(10, 2), k=2) # works
+my_func(torch.zeros(10, 2), k=3) # fails
+```
+
+unless this functionality is explicitly turned off:
+```python
+@check_tensor_shapes(ints_to_variables=False)
+def my_func(x: ShapedTensor["n k"], k: int):
+    return x.sum(dim=1)
+
+my_func(torch.zeros(10, 2), k=2) # works
+my_func(torch.zeros(10, 2), k=3) # works
+```

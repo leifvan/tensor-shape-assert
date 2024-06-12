@@ -189,6 +189,7 @@ def check_constraints(
 
 def check_tensor_shapes(
         constraints: list[str | Callable[[dict[str, int]], bool]] = None,
+        ints_to_variables: bool = True,
         experimental_enable_autogen_constraints: bool = False,
         *args, **kwargs
 ):
@@ -204,6 +205,11 @@ def check_tensor_shapes(
         is called. If callables are given, they receive the variable assignments
         as a dictionary and are expected to return ``True`` if the constraint
         is fullfilled, ``False`` otherwise.
+    
+    ints_to_variables : bool, optional
+        If ``True`` (default), all function parameters of type ``int`` will be added to
+        the list of shape variables and can be used in a shape descriptor.
+
     experimental_enable_autogen_constraints : bool, optional
         If ``True``, all variable names will be compiled as constraints. This
         comes with two caveats: First of all, as names are split by whitespaces,
@@ -243,7 +249,10 @@ def check_tensor_shapes(
 
             # check input type hints
 
-            variables = dict()
+            if ints_to_variables:
+                variables = {k: v for k, v in bound_arguments.items() if isinstance(v, int)}
+            else:
+                variables = dict()
 
             for key, parameter in signature.parameters.items():
                 try:
