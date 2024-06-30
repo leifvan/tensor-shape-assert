@@ -765,7 +765,7 @@ class TestVariableConstraints(unittest.TestCase):
 
 class TestIntToVariables(unittest.TestCase):
     def test_int_to_variable(self):
-        @check_tensor_shapes(ints_to_variables=True)
+        @check_tensor_shapes()
         def test(x: ShapedTensor["n m 3"], m: int) -> ShapedTensor["m"]:
             return x.sum(dim=0)[:, 0]
 
@@ -782,8 +782,14 @@ class TestIntToVariables(unittest.TestCase):
 
         test(torch.zeros(5, 4, 3), m=4)
         test(torch.zeros(5, 2, 3), m=2)
-        test(torch.zeros(5, 4, 3), m=3)        
+        test(torch.zeros(5, 4, 3), m=3)
 
+    def test_strict_int_comparison(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["n m 3"], m: bool) -> ShapedTensor["m"]:
+            return x.sum(dim=0)[:, 0]
+        
+        test(torch.zeros(5, 4, 3), m=True)
 
 
 if __name__ == "__main__":

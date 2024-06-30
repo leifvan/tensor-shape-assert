@@ -250,7 +250,7 @@ def check_tensor_shapes(
             # check input type hints
 
             if ints_to_variables:
-                variables = {k: v for k, v in bound_arguments.items() if isinstance(v, int)}
+                variables = {k: v for k, v in bound_arguments.items() if type(v) is int}
             else:
                 variables = dict()
 
