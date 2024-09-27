@@ -1,7 +1,7 @@
 from functools import wraps
 import types
 import inspect
-from typing import Any, Callable, ForwardRef, TypeVar
+from typing import Any, Callable, ForwardRef, Literal, TypeVar
 import warnings
 
 from .utils import TensorShapeAssertError
@@ -198,6 +198,15 @@ def check_iterable(annotation, obj, variables):
 # define a module level stack for currently declared variables
 _current_variables_stack = []
 
+# module level check mode
+CheckMode = Literal["always", "once", "never"]
+_global_check_mode: CheckMode = "always"
+_checked_functions: set = set()
+
+def set_check_mode(mode: CheckMode):
+    global _global_check_mode
+    _global_check_mode = mode
+
 
 def run_expression_constraint(
         expression: str,
@@ -241,6 +250,7 @@ def check_tensor_shapes(
         constraints: list[str | Callable[[dict[str, int]], bool]] = None,
         ints_to_variables: bool = True,
         experimental_enable_autogen_constraints: bool = False,
+        check_mode: CheckMode | None = None,
         *args, **kwargs
 ):
     """
@@ -291,6 +301,19 @@ def check_tensor_shapes(
             
             signature = inspect.signature(fn)
 
+            # shortcut function if check mode is different to 'always'
+
+            _check_mode = _global_check_mode if check_mode is None else check_mode
+
+            if  (
+                    (_check_mode == 'once'
+                    and signature in _checked_functions)
+                    or _check_mode == 'never'
+                ):
+                return fn(*args, **kwargs)
+            
+            _checked_functions.add(signature)
+
             # bind parameters
             
             bindings = signature.bind(*args, **kwargs)
@@ -336,6 +359,7 @@ def check_tensor_shapes(
 
             # call function
             # protect function call to gracefully handle variables stack
+
             try:
                 return_value = fn(*args, **kwargs)
             except Exception:

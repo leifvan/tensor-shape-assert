@@ -1,7 +1,7 @@
 from typing import Callable, NamedTuple
 import unittest
 import torch
-from tensor_shape_assert.wrapper import check_tensor_shapes, ShapedTensor, get_shape_variables, assert_shape_here
+from tensor_shape_assert.wrapper import check_tensor_shapes, ShapedTensor, get_shape_variables, assert_shape_here, set_check_mode
 from tensor_shape_assert.utils import TensorShapeAssertError
 from tensor_shape_assert.wrapper import NoVariableContextExistsError, VariableConstraintError
 
@@ -901,6 +901,141 @@ class TestNamedTupleSupport(unittest.TestCase):
 
         with self.assertRaises(TensorShapeAssertError):
             MyTuple(p=torch.zeros(5, 4, 3), q=torch.zeros(5, 2, 3), num=5)
+
+
+class TestCheckMode(unittest.TestCase):
+    def tearDown(self) -> None:
+        # reset it here just to be safe
+        set_check_mode('always')
+        return super().tearDown()
+
+    def test_always_checked_by_default(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
+            return x.sum(dim=(0, 1))
+        
+        test(torch.zeros(4, 3, 2))
+        
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.zeros(4, 3, 1))
+
+    def test_once_checked_global_ignores_errors(self):
+        set_check_mode('once')
+
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
+            return x.sum(dim=(0, 1))
+        
+        test(torch.zeros(4, 3, 2))
+        test(torch.zeros(4, 3, 1))
+        test(torch.zeros(4, 3, 3))
+
+    def test_once_checked_global_detects_first_error(self):
+        set_check_mode('once')
+
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
+            return x.sum(dim=(0, 1))
+        
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.zeros(4, 3, 1))
+
+        set_check_mode('always')
+
+    def test_never_global_detects_no_errors(self):
+        set_check_mode('never')
+
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
+            return x.sum(dim=(0, 1))
+        
+        test(torch.zeros(4, 3, 2))
+        test(torch.zeros(4, 3, 1))
+        test(torch.zeros(4, 3, 3))
+
+        set_check_mode('always')
+
+    def test_local_always_overrides_global_never(self):
+        set_check_mode('never')
+
+        @check_tensor_shapes(check_mode='always')
+        def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
+            return x.sum(dim=(0, 1))
+        
+        @check_tensor_shapes()
+        def test2(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
+            return x.sum(dim=(0, 1))
+        
+        test(torch.zeros(4, 3, 2))
+
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.zeros(4, 3, 1))
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.zeros(4, 3, 3))
+
+        test2(torch.zeros(4, 3, 1))
+
+        set_check_mode('always')
+
+    def test_local_always_overrides_global_once(self):
+        set_check_mode('once')
+
+        @check_tensor_shapes(check_mode='always')
+        def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
+            return x.sum(dim=(0, 1))
+        
+        @check_tensor_shapes()
+        def test2(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
+            return x.sum(dim=(0, 1))
+        
+        test(torch.zeros(4, 3, 2))
+
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.zeros(4, 3, 1))
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.zeros(4, 3, 3))
+
+        with self.assertRaises(TensorShapeAssertError):
+            test2(torch.zeros(4, 3, 1))
+
+        test2(torch.zeros(4, 3, 5))
+
+        set_check_mode('always')
+
+    def test_local_never_overrides_global_always(self):
+
+        set_check_mode('always')
+
+        @check_tensor_shapes(check_mode='never')
+        def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
+            return x.sum(dim=(0, 1))
+        
+        @check_tensor_shapes()
+        def test2(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
+            return x.sum(dim=(0, 1))
+        
+        test(torch.zeros(4, 3, 2))
+        test(torch.zeros(4, 3, 1))
+        test(torch.zeros(4, 3, 3))
+
+        with self.assertRaises(TensorShapeAssertError):
+            test2(torch.zeros(4, 3, 1))
+        with self.assertRaises(TensorShapeAssertError):
+            test2(torch.zeros(4, 3, 3))
+
+    def test_local_once_overrides_global_always(self):
+
+        set_check_mode('always')
+
+        @check_tensor_shapes(check_mode='once')
+        def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
+            return x.sum(dim=(0, 1))
+        
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.zeros(4, 3, 1))
+
+        test(torch.zeros(4, 3, 5))
+        test(torch.zeros(4, 3, 3))
 
 
 if __name__ == "__main__":
