@@ -203,7 +203,7 @@ CheckMode = Literal["always", "once", "never"]
 _global_check_mode: CheckMode = "always"
 _checked_functions: set = set()
 
-def set_check_mode(mode: CheckMode):
+def set_global_check_mode(mode: CheckMode):
     global _global_check_mode
     _global_check_mode = mode
 

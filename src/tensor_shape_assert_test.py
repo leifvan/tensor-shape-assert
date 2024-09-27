@@ -1,7 +1,7 @@
 from typing import Callable, NamedTuple
 import unittest
 import torch
-from tensor_shape_assert.wrapper import check_tensor_shapes, ShapedTensor, get_shape_variables, assert_shape_here, set_check_mode
+from tensor_shape_assert.wrapper import check_tensor_shapes, ShapedTensor, get_shape_variables, assert_shape_here, set_global_check_mode
 from tensor_shape_assert.utils import TensorShapeAssertError
 from tensor_shape_assert.wrapper import NoVariableContextExistsError, VariableConstraintError
 
@@ -906,7 +906,7 @@ class TestNamedTupleSupport(unittest.TestCase):
 class TestCheckMode(unittest.TestCase):
     def tearDown(self) -> None:
         # reset it here just to be safe
-        set_check_mode('always')
+        set_global_check_mode('always')
         return super().tearDown()
 
     def test_always_checked_by_default(self):
@@ -920,7 +920,7 @@ class TestCheckMode(unittest.TestCase):
             test(torch.zeros(4, 3, 1))
 
     def test_once_checked_global_ignores_errors(self):
-        set_check_mode('once')
+        set_global_check_mode('once')
 
         @check_tensor_shapes()
         def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
@@ -931,7 +931,7 @@ class TestCheckMode(unittest.TestCase):
         test(torch.zeros(4, 3, 3))
 
     def test_once_checked_global_detects_first_error(self):
-        set_check_mode('once')
+        set_global_check_mode('once')
 
         @check_tensor_shapes()
         def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
@@ -940,10 +940,10 @@ class TestCheckMode(unittest.TestCase):
         with self.assertRaises(TensorShapeAssertError):
             test(torch.zeros(4, 3, 1))
 
-        set_check_mode('always')
+        set_global_check_mode('always')
 
     def test_never_global_detects_no_errors(self):
-        set_check_mode('never')
+        set_global_check_mode('never')
 
         @check_tensor_shapes()
         def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
@@ -953,10 +953,10 @@ class TestCheckMode(unittest.TestCase):
         test(torch.zeros(4, 3, 1))
         test(torch.zeros(4, 3, 3))
 
-        set_check_mode('always')
+        set_global_check_mode('always')
 
     def test_local_always_overrides_global_never(self):
-        set_check_mode('never')
+        set_global_check_mode('never')
 
         @check_tensor_shapes(check_mode='always')
         def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
@@ -975,10 +975,10 @@ class TestCheckMode(unittest.TestCase):
 
         test2(torch.zeros(4, 3, 1))
 
-        set_check_mode('always')
+        set_global_check_mode('always')
 
     def test_local_always_overrides_global_once(self):
-        set_check_mode('once')
+        set_global_check_mode('once')
 
         @check_tensor_shapes(check_mode='always')
         def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
@@ -1000,11 +1000,11 @@ class TestCheckMode(unittest.TestCase):
 
         test2(torch.zeros(4, 3, 5))
 
-        set_check_mode('always')
+        set_global_check_mode('always')
 
     def test_local_never_overrides_global_always(self):
 
-        set_check_mode('always')
+        set_global_check_mode('always')
 
         @check_tensor_shapes(check_mode='never')
         def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
@@ -1025,7 +1025,7 @@ class TestCheckMode(unittest.TestCase):
 
     def test_local_once_overrides_global_always(self):
 
-        set_check_mode('always')
+        set_global_check_mode('always')
 
         @check_tensor_shapes(check_mode='once')
         def test(x: ShapedTensor["m n 2"]) -> ShapedTensor["2"]:
