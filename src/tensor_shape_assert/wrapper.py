@@ -18,6 +18,12 @@ class AnnotationMatchingError(TensorShapeAssertError):
 class VariableConstraintError(TensorShapeAssertError):
     pass
 
+class DtypeConstraintError(TensorShapeAssertError):
+    pass
+
+class DeviceConstraintError(TensorShapeAssertError):
+    pass
+
 
 # try importing torch for type hints
 
@@ -29,12 +35,34 @@ except ImportError:
         @property
         def shape(self) -> tuple[int, ...]:
             raise NotImplementedError
+        
+        @property
+        def dtype(self) -> Any:
+            raise NotImplementedError
+        
+        @property
+        def device(self) -> Any:
+            raise NotImplementedError
 
 # define str subclasses to identify shape descriptors
 
 class ShapeDescriptor:
-    def __init__(self, s: str) -> None:
-        self.s = s
+    def __init__(self, s: str | tuple[str, Any] | tuple[str, Any, Any]) -> None:
+        self.dtype = self.device = None
+        
+        if isinstance(s, tuple):
+            if len(s) == 3:
+                self.s, self.dtype = s[:2]
+                self.device = torch.device(s[2])
+            elif len(s) == 2:
+                self.s, self.dtype = s
+            else:
+                raise ValueError(
+                    f"Incorrect shape descriptor '{s}'. Has to be a string or a tuple "
+                    f"(string, dtype) or (string, dtype, device)."
+                )
+        else:
+            self.s = s
 
     def __or__(self, value: Any) -> types.GenericAlias:
         if value is not None:
@@ -142,6 +170,22 @@ def check_iterable(annotation, obj, variables):
             shape=obj.shape,
             variables=variables
         )
+
+        # optionally check dtype
+        if descriptor.dtype is not None:
+            if obj.dtype != descriptor.dtype:
+                raise DtypeConstraintError(
+                    f"Dtype '{obj.dtype}' does not match the annotated dtype "
+                    f"'{descriptor.dtype}'."
+                )
+            
+        # optionally check device
+        if descriptor.device is not None:
+            if obj.device != descriptor.device:
+                raise DeviceConstraintError(
+                    f"Device '{obj.device}' does not match the annotated device "
+                    f"'{descriptor.device}'."
+                )
     
     return variables
 
