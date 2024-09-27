@@ -488,6 +488,14 @@ class TestMisc(unittest.TestCase):
         
         self.assertIn("Maybe you forgot brackets", str(cm.exception))
 
+    def test_union_type_error(self):
+        with self.assertRaises(TensorShapeAssertError):
+            @check_tensor_shapes()
+            def test(x: ShapedTensor["a"] | str):
+                return x
+            
+            test(x=torch.zeros(5))
+
 
 
 class TestGetVariableValuesFromCurrentContext(unittest.TestCase):

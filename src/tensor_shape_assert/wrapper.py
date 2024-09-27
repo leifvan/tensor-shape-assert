@@ -57,7 +57,7 @@ class ShapeDescriptor:
             elif len(s) == 2:
                 self.s, self.dtype = s
             else:
-                raise ValueError(
+                raise TensorShapeAssertError(
                     f"Incorrect shape descriptor '{s}'. Has to be a string or a tuple "
                     f"(string, dtype) or (string, dtype, device)."
                 )
@@ -66,7 +66,10 @@ class ShapeDescriptor:
 
     def __or__(self, value: Any) -> types.GenericAlias:
         if value is not None:
-            assert False
+            raise TensorShapeAssertError(
+                f"Union with '{value}' is not allowed as an annotation. Currently it is "
+                f"only supported to use 'None' as the other union type."
+            )
         return OptionalShapeDescriptor(self.s)
     
     def __str__(self) -> str:
