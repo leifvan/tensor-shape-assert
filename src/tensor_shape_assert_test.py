@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, NamedTuple
 import unittest
 import torch
 from tensor_shape_assert.wrapper import check_tensor_shapes, ShapedTensor, get_shape_variables, assert_shape_here
@@ -886,6 +886,21 @@ class TestDeviceAnnotationTorch(unittest.TestCase):
         with self.assertRaises(TensorShapeAssertError):
             test(torch.zeros(1, 2, 3, device='cpu'))
 
+
+class TestNamedTupleSupport(unittest.TestCase):
+    def test_named_tuple(self):
+        
+        @check_tensor_shapes()
+        class MyTuple(NamedTuple):
+            p: ShapedTensor["n m 3"]
+            q: ShapedTensor["n 1 3"]
+            num: int
+
+        MyTuple(p=torch.zeros(5, 4, 3), q=torch.zeros(5, 1, 3), num=5)
+        MyTuple(torch.zeros(10, 1, 3), torch.zeros(10, 1, 3), num=8)
+
+        with self.assertRaises(TensorShapeAssertError):
+            MyTuple(p=torch.zeros(5, 4, 3), q=torch.zeros(5, 2, 3), num=5)
 
 
 if __name__ == "__main__":

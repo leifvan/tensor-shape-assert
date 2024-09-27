@@ -1,7 +1,7 @@
 from functools import wraps
 import types
 import inspect
-from typing import Any, Callable
+from typing import Any, Callable, ForwardRef, TypeVar
 import warnings
 
 from .utils import TensorShapeAssertError
@@ -46,7 +46,10 @@ except ImportError:
 
 # define str subclasses to identify shape descriptors
 
-class ShapeDescriptor:
+class ShapeDescriptor(type):
+    def __new__(cls, s: str):
+        return type.__new__(cls, str(s), tuple(), dict())
+
     def __init__(self, s: str | tuple[str, Any] | tuple[str, Any, Any]) -> None:
         self.dtype = self.device = None
         
