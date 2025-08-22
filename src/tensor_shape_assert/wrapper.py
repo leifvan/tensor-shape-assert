@@ -374,7 +374,7 @@ def check_tensor_shapes(
                     obj=return_value,
                     variables=variables
                 )
-            except TensorShapeAssertError:
+            except TensorShapeAssertError as e:
                 # wrap exception to provide location info (output)
                 raise TensorShapeAssertError(
                     f"Shape assertion failed during check output of "
@@ -459,6 +459,11 @@ def assert_shape_here(obj_or_shape: Any, descriptor: str) -> None:
     descriptor : str
         A shape descriptor string. See ``ShapedTensor`` for details.
     """
+
+    # skip if check is disabled
+    if _global_check_mode == "never":
+        return
+
     check_if_context_is_available()
 
     try:

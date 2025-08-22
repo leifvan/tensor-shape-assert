@@ -955,6 +955,20 @@ class TestCheckMode(unittest.TestCase):
 
         set_global_check_mode('always')
 
+    def test_never_global_ignores_assert_shape_here(self):
+        set_global_check_mode('never')
+
+        @check_tensor_shapes()
+        def test(x: torch.Tensor) -> ShapedTensor["2"]:
+            assert_shape_here(x, "m n 2")
+            return x.sum(dim=(0, 1))
+        
+        test(torch.zeros(4, 3, 2))
+        test(torch.zeros(4, 3, 1))
+        test(torch.zeros(4, 3, 3))
+
+        set_global_check_mode('always')
+
     def test_local_always_overrides_global_never(self):
         set_global_check_mode('never')
 
