@@ -338,7 +338,7 @@ def check_tensor_shapes(
                     # wrap exception to provide location info (input)
                     raise TensorShapeAssertError(
                         f"Shape assertion failed during check of input "
-                        f"parameter '{key}'."
+                        f"parameter '{key}' of '{fn.__name__}': {e}"
                     )
                 
             # check input variable constraints (allow errors for now)
@@ -377,7 +377,8 @@ def check_tensor_shapes(
             except TensorShapeAssertError:
                 # wrap exception to provide location info (output)
                 raise TensorShapeAssertError(
-                    f"Shape assertion failed during check of function output."
+                    f"Shape assertion failed during check output of "
+                    f"'{fn.__name__}': {e}"
                 )
             finally:
                 # check output variable constraints (this time strictly)
