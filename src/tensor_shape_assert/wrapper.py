@@ -4,7 +4,7 @@ import inspect
 from typing import Any, Callable, ForwardRef, Literal, TypeVar
 import warnings
 
-from .utils import TensorShapeAssertError
+from .utils import TensorShapeAssertError, check_if_dtype_matches
 from .descriptor import descriptor_to_variables, split_to_descriptor_items, clean_up_descriptor
 
 # define errors
@@ -46,26 +46,68 @@ except ImportError:
 
 # define str subclasses to identify shape descriptors
 
+"""
+'bool': boolean data types (e.g., bool).
+
+'signed integer': signed integer data types (e.g., int8, int16, int32, int64).
+
+'unsigned integer': unsigned integer data types (e.g., uint8, uint16, uint32, uint64).
+
+'integral': integer data types. Shorthand for ('signed integer', 'unsigned integer').
+
+'real floating': real-valued floating-point data types (e.g., float32, float64).
+
+'complex floating': complex floating-point data types (e.g., complex64, complex128).
+
+'numeric': numeric data types. Shorthand for ('integral', 'real floating', 'complex floating').
+"""
+
+_NAME_TO_KIND = {
+    'bool': 'bool',
+    'int': 'signed integer',
+    'uint': 'unsigned integer',
+    'integral': 'integral',
+    'float': 'real floating',
+    'complex': 'complex floating',
+    'numeric': 'numeric'
+}
+_DTYPE_SIZES = (8, 16, 32, 64, 128, None)
+
+def find_dtype_in_items(items):
+    # for any combination of dtype and size
+    for dtype_size in (_DTYPE_SIZES):
+            for dtype_name, kind in _NAME_TO_KIND.items():
+                if dtype_size is None:
+                    dtype_str = f"{dtype_name}"
+                else:
+                    dtype_str = f"{dtype_name}{dtype_size}"
+
+                if dtype_str in items:
+                    return (kind, dtype_size), dtype_str
+    return None, ""
+
+
 class ShapeDescriptor(type):
     def __new__(cls, s: str):
         return type.__new__(cls, str(s), tuple(), dict())
 
-    def __init__(self, s: str | tuple[str, Any] | tuple[str, Any, Any]) -> None:
-        self.dtype = self.device = None
+    def __init__(self, s: str) -> None:
         
-        if isinstance(s, tuple):
-            if len(s) == 3:
-                self.s, self.dtype = s[:2]
-                self.device = torch.device(s[2])
-            elif len(s) == 2:
-                self.s, self.dtype = s
-            else:
-                raise TensorShapeAssertError(
-                    f"Incorrect shape descriptor '{s}'. Has to be a string or a tuple "
-                    f"(string, dtype) or (string, dtype, device)."
-                )
-        else:
-            self.s = s
+        self.dtype = None
+        self.device = None  # kept for compatibility (for now)
+
+        # process string
+
+        s = clean_up_descriptor(s)
+
+        # look for dtype clues in string (use split to ensure full words)
+
+        self.dtype, dtype_str = find_dtype_in_items(s.split(" "))
+
+        # remove found dtype clue
+
+        self.s = s.replace(dtype_str, "").lstrip()
+
 
     def __or__(self, value: Any) -> types.GenericAlias:
         if value is not None:
@@ -182,7 +224,7 @@ def check_iterable(annotation, obj, variables):
 
         # optionally check dtype
         if descriptor.dtype is not None:
-            if obj.dtype != descriptor.dtype:
+            if not check_if_dtype_matches(obj, *descriptor.dtype):
                 raise DtypeConstraintError(
                     f"Dtype '{obj.dtype}' does not match the annotated dtype "
                     f"'{descriptor.dtype}'."
@@ -190,11 +232,9 @@ def check_iterable(annotation, obj, variables):
             
         # optionally check device
         if descriptor.device is not None:
-            if obj.device != descriptor.device:
-                raise DeviceConstraintError(
-                    f"Device '{obj.device}' does not match the annotated device "
-                    f"'{descriptor.device}'."
-                )
+            raise NotImplementedError(
+                "Device checks are not implemented yet."
+            )
     
     return variables
 
@@ -435,6 +475,7 @@ def get_shape_variables(names: str) -> tuple[int, ...]:
     """
     check_if_context_is_available()
     
+    names = clean_up_descriptor(names)
     front, back, mdd = split_to_descriptor_items(names)
     if mdd is None:
         var_names = front

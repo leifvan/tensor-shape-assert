@@ -17,7 +17,7 @@ def is_multi_dim_descriptor(s: str):
 
 WHITESPACE_CHARS = "!\"#$%&',:;<=>?@[\\]^`{|}~"
 
-def clean_up_descriptor(shape_descriptor: str):
+def clean_up_descriptor(shape_descriptor: str) -> str:
     # remove ignored chars
     clean_shape_descriptor = shape_descriptor
     for ignored_char in WHITESPACE_CHARS:
@@ -43,8 +43,8 @@ def clean_up_descriptor(shape_descriptor: str):
 
 
 def split_to_descriptor_items(shape_descriptor: str):
+    
     # split into individual strings and ints
-    shape_descriptor = clean_up_descriptor(shape_descriptor)
     descriptor_items = shape_descriptor.split(" ")
     
     if len(descriptor_items[0]) > 0:
@@ -90,7 +90,7 @@ def get_expected_shape_item(descriptor_item, shape_item, prev_var):
         return None, shape_item
     
     else:
-        # if variable is already set, values must matach
+        # if variable is already set, values must match
         return prev_var, prev_var
 
 def descriptor_items_to_string(descriptor_items: tuple[str | int]) -> str:
@@ -105,7 +105,6 @@ def descriptor_to_variables(shape_descriptor, shape, variables=None):
     # build check list
     if multi_dim_item is not None:
         
-
         if len(front_items) + len(back_items) < len(shape):
             shape_multi = [shape[len(front_items):len(shape) - len(back_items)]]
             descriptor_items = (*front_items, multi_dim_item, *back_items)

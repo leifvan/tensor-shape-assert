@@ -800,9 +800,9 @@ class TestIntToVariables(unittest.TestCase):
         test(torch.zeros(5, 4, 3), m=True)
 
 class TestDtypeAnnotationTorch(unittest.TestCase):
-    def test_int_types(self):
+    def test_specified_int_types(self):
         @check_tensor_shapes()
-        def test(x: ShapedTensor["n m 3", torch.int16]) -> ShapedTensor["m", torch.int32]:
+        def test(x: ShapedTensor["int16 n m 3"]) -> ShapedTensor["int32 m"]:
             return x.sum(dim=2).median(dim=0)[0].to(torch.int32)
         
         test(torch.zeros(1, 2, 3, dtype=torch.int16))
@@ -810,9 +810,20 @@ class TestDtypeAnnotationTorch(unittest.TestCase):
         with self.assertRaises(TensorShapeAssertError):
             test(torch.zeros(1, 2, 3, dtype=torch.int32))
 
-    def test_float_types(self):
+    def test_unspecificed_int_types(self):
         @check_tensor_shapes()
-        def test(x: ShapedTensor["n m 3", torch.float64]) -> ShapedTensor["m", torch.float32]:
+        def test(x: ShapedTensor["integral n m 3"]) -> ShapedTensor["int m"]:
+            return x.sum(dim=2).median(dim=0)[0].to(torch.int32)
+        
+        test(torch.zeros(1, 2, 3, dtype=torch.int16))
+        test(torch.zeros(1, 2, 3, dtype=torch.uint8))
+
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.zeros(1, 2, 3, dtype=torch.float32))
+
+    def test_specified_float_types(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["float64 n m 3"]) -> ShapedTensor["float32 m"]:
             return x.sum(dim=2).median(dim=0)[0].to(torch.float32)
         
         test(torch.zeros(1, 2, 3, dtype=torch.float64))
@@ -820,19 +831,40 @@ class TestDtypeAnnotationTorch(unittest.TestCase):
         with self.assertRaises(TensorShapeAssertError):
             test(torch.zeros(1, 2, 3, dtype=torch.float16))
 
-    def test_complex_type(self):
+    def test_unspecified_float_types(self):
         @check_tensor_shapes()
-        def test(x: ShapedTensor["n m 3", torch.complex128]) -> ShapedTensor["m", torch.float16]:
+        def test(x: ShapedTensor["float n m 3"]) -> ShapedTensor["float m"]:
+            return x.sum(dim=2).median(dim=0)[0].to(torch.float32)
+        
+        test(torch.zeros(1, 2, 3, dtype=torch.float64))
+
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.zeros(1, 2, 3, dtype=torch.int32))
+
+    def test_specified_complex_type(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["complex128 n m 3"]) -> ShapedTensor["float16 m"]:
             return x.sum(dim=(0, 2)).real.to(torch.float16)
         
         test(torch.zeros(1, 2, 3, dtype=torch.complex128))
+
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.zeros(1, 2, 3, dtype=torch.float32))
+
+    def test_unspecified_complex_type(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["complex n m 3"]) -> ShapedTensor["float16 m"]:
+            return x.sum(dim=(0, 2)).real.to(torch.float16)
+        
+        test(torch.zeros(1, 2, 3, dtype=torch.complex128))
+        test(torch.zeros(1, 2, 3, dtype=torch.complex64))
 
         with self.assertRaises(TensorShapeAssertError):
             test(torch.zeros(1, 2, 3, dtype=torch.float64))
 
     def test_ignored_type(self):
         @check_tensor_shapes()
-        def test(x: ShapedTensor["n m 3", None], rt) -> ShapedTensor["m", torch.float16]:
+        def test(x: ShapedTensor["n m 3"], rt) -> ShapedTensor["float16 m"]:
             return x.sum(dim=(0, 2)).real.to(rt)
         
         test(torch.zeros(1, 2, 3, dtype=torch.complex64), rt=torch.float16)
@@ -840,51 +872,59 @@ class TestDtypeAnnotationTorch(unittest.TestCase):
         with self.assertRaises(TensorShapeAssertError):
             test(torch.zeros(1, 2, 3, dtype=torch.complex64), rt=torch.float32)
 
-class TestDeviceAnnotationTorch(unittest.TestCase):
-    def test_device_cpu(self):
-        
-        if not torch.cuda.is_available():
-            print("CUDA not available, skipping device test...")
-            return
-
+    def test_bool_with_bitsize_raises_error(self):
         @check_tensor_shapes()
-        def test(x: ShapedTensor["n m 3", None, 'cpu']) -> ShapedTensor["m", None, 'cpu']:
-            return x.sum(dim=2).median(dim=0)[0].to(torch.int32)
-        
-        test(torch.zeros(1, 2, 3, device='cpu'))
+        def test(x: ShapedTensor["bool8 n m 3"], rt) -> ShapedTensor["float16 m"]:
+            return x.sum(dim=(0, 2)).real.to(rt)
 
         with self.assertRaises(TensorShapeAssertError):
-            test(torch.zeros(1, 2, 3, device='cuda:0'))
+            test(torch.zeros(1, 2, 3, dtype=torch.bool), rt=torch.float32)
 
-    def test_device_single_gpu(self):
+# class TestDeviceAnnotationTorch(unittest.TestCase):
+#     def test_device_cpu(self):
         
-        if not torch.cuda.is_available():
-            print("CUDA not available, skipping device test...")
-            return
+#         if not torch.cuda.is_available():
+#             print("CUDA not available, skipping device test...")
+#             return
 
-        @check_tensor_shapes()
-        def test(x: ShapedTensor["n m 3", None, 'cuda:0']) -> ShapedTensor["m", None, 'cpu']:
-            return x.sum(dim=2).median(dim=0)[0].to('cpu')
+#         @check_tensor_shapes()
+#         def test(x: ShapedTensor["n m 3", None, 'cpu']) -> ShapedTensor["m", None, 'cpu']:
+#             return x.sum(dim=2).median(dim=0)[0].to(torch.int32)
         
-        test(torch.zeros(1, 2, 3, device='cuda:0'))
+#         test(torch.zeros(1, 2, 3, device='cpu'))
 
-        with self.assertRaises(TensorShapeAssertError):
-            test(torch.zeros(1, 2, 3, device='cpu'))
+#         with self.assertRaises(TensorShapeAssertError):
+#             test(torch.zeros(1, 2, 3, device='cuda:0'))
 
-    def test_device_multi_gpu(self):
+#     def test_device_single_gpu(self):
         
-        if torch.cuda.device_count() < 2:
-            print("Required amount of CUDA devices not available, skipping device test...")
-            return
+#         if not torch.cuda.is_available():
+#             print("CUDA not available, skipping device test...")
+#             return
 
-        @check_tensor_shapes()
-        def test(x: ShapedTensor["n m 3", None, 'cuda:0']) -> ShapedTensor["m", None, 'cuda:1']:
-            return x.sum(dim=2).median(dim=0)[0].to('cuda:1')
+#         @check_tensor_shapes()
+#         def test(x: ShapedTensor["n m 3", None, 'cuda:0']) -> ShapedTensor["m", None, 'cpu']:
+#             return x.sum(dim=2).median(dim=0)[0].to('cpu')
         
-        test(torch.zeros(1, 2, 3, device='cuda:0'))
+#         test(torch.zeros(1, 2, 3, device='cuda:0'))
 
-        with self.assertRaises(TensorShapeAssertError):
-            test(torch.zeros(1, 2, 3, device='cpu'))
+#         with self.assertRaises(TensorShapeAssertError):
+#             test(torch.zeros(1, 2, 3, device='cpu'))
+
+#     def test_device_multi_gpu(self):
+        
+#         if torch.cuda.device_count() < 2:
+#             print("Required amount of CUDA devices not available, skipping device test...")
+#             return
+
+#         @check_tensor_shapes()
+#         def test(x: ShapedTensor["n m 3", None, 'cuda:0']) -> ShapedTensor["m", None, 'cuda:1']:
+#             return x.sum(dim=2).median(dim=0)[0].to('cuda:1')
+        
+#         test(torch.zeros(1, 2, 3, device='cuda:0'))
+
+#         with self.assertRaises(TensorShapeAssertError):
+#             test(torch.zeros(1, 2, 3, device='cpu'))
 
 
 class TestNamedTupleSupport(unittest.TestCase):

@@ -7,7 +7,7 @@ long_description = (here / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="tensor-shape-assert",
-    version="0.1.11",
+    version="0.2.0",
     description="A simple runtime assert library for tensor-based frameworks.",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -23,5 +23,8 @@ setup(
     keywords="sample, setuptools, development",
     package_dir={"": "src"},
     packages=find_packages(where="src"),
-    python_requires=">=3.10, <4"
+    python_requires=">=3.10, <4",
+    install_requires=[
+        "array-api-compat>=1.12",
+    ],
 )
