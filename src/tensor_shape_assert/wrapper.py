@@ -110,6 +110,9 @@ class ShapedTensor(TensorType):
     
     def __class_getitem__(cls, key):
         return ShapeDescriptor(key)
+
+# aliases
+ScalarTensor = ShapedTensor[""]
     
 
 def unroll_iterable_annotation(annotation, obj):

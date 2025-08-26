@@ -46,7 +46,11 @@ def split_to_descriptor_items(shape_descriptor: str):
     # split into individual strings and ints
     shape_descriptor = clean_up_descriptor(shape_descriptor)
     descriptor_items = shape_descriptor.split(" ")
-    descriptor_items = tuple(optional_to_int(i) for i in descriptor_items)
+    
+    if len(descriptor_items[0]) > 0:
+        descriptor_items = tuple(optional_to_int(i) for i in descriptor_items)
+    else:
+        descriptor_items = tuple()
     
     # there should be at most one multi dim descriptor
     mdd_idxs = [i for i, s in enumerate(descriptor_items) if is_multi_dim_descriptor(s)]

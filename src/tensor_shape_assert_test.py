@@ -1,7 +1,7 @@
 from typing import Callable, NamedTuple
 import unittest
 import torch
-from tensor_shape_assert.wrapper import check_tensor_shapes, ShapedTensor, get_shape_variables, assert_shape_here, set_global_check_mode
+from tensor_shape_assert.wrapper import check_tensor_shapes, ShapedTensor, get_shape_variables, assert_shape_here, set_global_check_mode, ScalarTensor
 from tensor_shape_assert.utils import TensorShapeAssertError
 from tensor_shape_assert.wrapper import NoVariableContextExistsError, VariableConstraintError
 
@@ -1051,6 +1051,65 @@ class TestCheckMode(unittest.TestCase):
         test(torch.zeros(4, 3, 5))
         test(torch.zeros(4, 3, 3))
 
+class TestScalarValues(unittest.TestCase):
+    def test_scalar_inputs(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor[""], y: ShapedTensor[""]) -> ShapedTensor[""]:
+            return x + y
+        
+        test(torch.tensor(5), torch.tensor(3))
+        test(torch.tensor(5.0), torch.tensor(3.2))
+
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.tensor(5), torch.zeros(1))
+
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.zeros(1), torch.tensor(3))
+
+    def test_scalar_outputs(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["n"]) -> ShapedTensor[""]:
+            return x.sum()
+        
+        self.assertTrue(torch.equal(test(torch.zeros(5)), torch.tensor(0)))
+        self.assertTrue(torch.equal(test(torch.ones(5)), torch.tensor(5)))
+
+        with self.assertRaises(TensorShapeAssertError):
+            @check_tensor_shapes()
+            def test(x: ShapedTensor["n"]) -> ShapedTensor["1"]:
+                return x.sum()
+            
+            test(torch.zeros(5))
+
+class TestScalarValuesAlias(unittest.TestCase):
+    def test_scalar_inputs(self):
+        @check_tensor_shapes()
+        def test(x: ScalarTensor, y: ScalarTensor) -> ScalarTensor:
+            return x + y
+        
+        test(torch.tensor(5), torch.tensor(3))
+        test(torch.tensor(5.0), torch.tensor(3.2))
+
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.tensor(5), torch.zeros(1))
+
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.zeros(1), torch.tensor(3))
+
+    def test_scalar_outputs(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["n"]) -> ScalarTensor:
+            return x.sum()
+        
+        self.assertTrue(torch.equal(test(torch.zeros(5)), torch.tensor(0)))
+        self.assertTrue(torch.equal(test(torch.ones(5)), torch.tensor(5)))
+
+        with self.assertRaises(TensorShapeAssertError):
+            @check_tensor_shapes()
+            def test(x: ShapedTensor["n"]) -> ShapedTensor["1"]:
+                return x.sum()
+            
+            test(torch.zeros(5))
 
 if __name__ == "__main__":
     unittest.main()
