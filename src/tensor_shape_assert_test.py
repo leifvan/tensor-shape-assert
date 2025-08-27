@@ -1,7 +1,7 @@
 from typing import Callable, NamedTuple
 import unittest
 import torch
-from tensor_shape_assert.wrapper import check_tensor_shapes, ShapedTensor, get_shape_variables, assert_shape_here, set_global_check_mode, ScalarTensor
+from tensor_shape_assert.wrapper import MalformedDescriptorError, UnionTypeUnsupportedError, check_tensor_shapes, ShapedTensor, get_shape_variables, assert_shape_here, set_global_check_mode, ScalarTensor
 from tensor_shape_assert.utils import TensorShapeAssertError
 from tensor_shape_assert.wrapper import NoVariableContextExistsError, VariableConstraintError
 
@@ -489,7 +489,7 @@ class TestMisc(unittest.TestCase):
         self.assertIn("Maybe you forgot brackets", str(cm.exception))
 
     def test_union_type_error(self):
-        with self.assertRaises(TensorShapeAssertError):
+        with self.assertRaises(UnionTypeUnsupportedError):
             @check_tensor_shapes()
             def test(x: ShapedTensor["a"] | str):
                 return x
@@ -880,51 +880,32 @@ class TestDtypeAnnotationTorch(unittest.TestCase):
         with self.assertRaises(TensorShapeAssertError):
             test(torch.zeros(1, 2, 3, dtype=torch.bool), rt=torch.float32)
 
-# class TestDeviceAnnotationTorch(unittest.TestCase):
-#     def test_device_cpu(self):
+    def test_dtype_is_position_agnostic(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["  n m complex: 3 "]) -> ShapedTensor["m  |float16|"]:
+            return x.sum(dim=(0, 2)).real.to(torch.float16)
         
-#         if not torch.cuda.is_available():
-#             print("CUDA not available, skipping device test...")
-#             return
+        test(torch.zeros(1, 2, 3, dtype=torch.complex128))
+        test(torch.zeros(1, 2, 3, dtype=torch.complex64))
 
-#         @check_tensor_shapes()
-#         def test(x: ShapedTensor["n m 3", None, 'cpu']) -> ShapedTensor["m", None, 'cpu']:
-#             return x.sum(dim=2).median(dim=0)[0].to(torch.int32)
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.zeros(1, 2, 3, dtype=torch.float64))
+
+    def test_fails_with_multiple_dtype_descriptors(self):
+        with self.assertRaises(MalformedDescriptorError):
+            @check_tensor_shapes()
+            def test(x: ShapedTensor["float n m complex 3"]) -> ShapedTensor["m"]:
+                return x.sum(dim=2).median(dim=0)[0].to(torch.int32)
+
+    def test_scalar_dtype_annotation(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["n"]) -> ShapedTensor["float32"]:
+            return x.sum()
         
-#         test(torch.zeros(1, 2, 3, device='cpu'))
+        test(torch.zeros(5, dtype=torch.float32))
 
-#         with self.assertRaises(TensorShapeAssertError):
-#             test(torch.zeros(1, 2, 3, device='cuda:0'))
-
-#     def test_device_single_gpu(self):
-        
-#         if not torch.cuda.is_available():
-#             print("CUDA not available, skipping device test...")
-#             return
-
-#         @check_tensor_shapes()
-#         def test(x: ShapedTensor["n m 3", None, 'cuda:0']) -> ShapedTensor["m", None, 'cpu']:
-#             return x.sum(dim=2).median(dim=0)[0].to('cpu')
-        
-#         test(torch.zeros(1, 2, 3, device='cuda:0'))
-
-#         with self.assertRaises(TensorShapeAssertError):
-#             test(torch.zeros(1, 2, 3, device='cpu'))
-
-#     def test_device_multi_gpu(self):
-        
-#         if torch.cuda.device_count() < 2:
-#             print("Required amount of CUDA devices not available, skipping device test...")
-#             return
-
-#         @check_tensor_shapes()
-#         def test(x: ShapedTensor["n m 3", None, 'cuda:0']) -> ShapedTensor["m", None, 'cuda:1']:
-#             return x.sum(dim=2).median(dim=0)[0].to('cuda:1')
-        
-#         test(torch.zeros(1, 2, 3, device='cuda:0'))
-
-#         with self.assertRaises(TensorShapeAssertError):
-#             test(torch.zeros(1, 2, 3, device='cpu'))
+        with self.assertRaises(TensorShapeAssertError):
+            test(torch.zeros(7, dtype=torch.int32))
 
 
 class TestNamedTupleSupport(unittest.TestCase):

@@ -9,20 +9,15 @@ from .descriptor import descriptor_to_variables, split_to_descriptor_items, clea
 
 # define errors
 
-class NoVariableContextExistsError(TensorShapeAssertError):
-    pass
+class MalformedDescriptorError(TensorShapeAssertError): pass
+class NoVariableContextExistsError(TensorShapeAssertError): pass
+class AnnotationMatchingError(TensorShapeAssertError): pass
+class VariableConstraintError(TensorShapeAssertError): pass
+class DtypeConstraintError(TensorShapeAssertError): pass
+class UnionTypeUnsupportedError(TensorShapeAssertError): pass
 
-class AnnotationMatchingError(TensorShapeAssertError):
-    pass
-
-class VariableConstraintError(TensorShapeAssertError):
-    pass
-
-class DtypeConstraintError(TensorShapeAssertError):
-    pass
-
-class DeviceConstraintError(TensorShapeAssertError):
-    pass
+# class DeviceConstraintError(TensorShapeAssertError):
+#     pass
 
 
 # try importing torch for type hints
@@ -106,14 +101,23 @@ class ShapeDescriptor(type):
 
         # remove found dtype clue
 
-        self.s = s.replace(dtype_str, "").lstrip()
+        self.s = clean_up_descriptor(s.replace(dtype_str, ""))
+
+        # check for additional descriptors
+
+        if find_dtype_in_items(self.s.split(" "))[0] is not None:
+            raise MalformedDescriptorError(
+                f"Multiple dtype descriptors found in shape descriptor '{s}'. "
+                f"Only a single dtype descriptor is allowed."
+            )
 
 
     def __or__(self, value: Any) -> types.GenericAlias:
         if value is not None:
-            raise TensorShapeAssertError(
-                f"Union with '{value}' is not allowed as an annotation. Currently it is "
-                f"only supported to use 'None' as the other union type."
+            raise UnionTypeUnsupportedError(
+                f"Union with '{value}' is not allowed as an annotation. "
+                f"Currently it is only supported to use 'None' as the other "
+                f"union type."
             )
         return OptionalShapeDescriptor(self.s)
     
