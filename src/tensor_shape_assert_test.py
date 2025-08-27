@@ -1,3 +1,4 @@
+from multiprocessing import Queue
 from typing import Callable, NamedTuple
 import unittest
 import torch
@@ -477,16 +478,26 @@ class TestMisc(unittest.TestCase):
         
         test(x=torch.zeros(1))
 
-    def test_helpful_error_message_when_brackets_missing(self):
+    # def test_helpful_error_message_when_brackets_missing(self):
         
-        with self.assertRaises(TensorShapeAssertError) as cm:
-            @check_tensor_shapes
-            def test(x: ShapedTensor["a"]) -> ShapedTensor["b"]:
-                return x[1:]
+    #     with self.assertRaises(TensorShapeAssertError) as cm:
+    #         @check_tensor_shapes
+    #         def test(x: ShapedTensor["a"]) -> ShapedTensor["b"]:
+    #             return x[1:]
             
-            test(x=torch.zeros(5))
+    #         test(x=torch.zeros(5))
         
-        self.assertIn("Maybe you forgot brackets", str(cm.exception))
+    #     self.assertIn("Maybe you forgot brackets", str(cm.exception))
+
+    def test_brackets_missing_uses_defaults(self):
+    
+        @check_tensor_shapes
+        def test(x: ShapedTensor["a"]) -> ShapedTensor["b"]:
+            return x[1:]
+
+        test(x=torch.zeros(5))
+        self.assertTrue(True)
+            
 
     def test_union_type_error(self):
         with self.assertRaises(UnionTypeUnsupportedError):
@@ -1131,6 +1142,44 @@ class TestScalarValuesAlias(unittest.TestCase):
                 return x.sum()
             
             test(torch.zeros(5))
+
+@check_tensor_shapes
+class TestPicklingCompatibilityMyClassNoParentheses:
+    def __init__(self, x: ShapedTensor["n"]):
+        self.x = x
+@check_tensor_shapes()
+class TestPicklingCompatibilityMyClassParentheses:
+    def __init__(self, x: ShapedTensor["n"]):
+        self.x = x
+
+@check_tensor_shapes()
+class TestPicklingCompatibilityMyNamedTupleNoParentheses(NamedTuple):
+    x: ShapedTensor["n"]
+@check_tensor_shapes()
+class TestPicklingCompatibilityMyNamedTupleParentheses(NamedTuple):
+    x: ShapedTensor["n"]
+
+class TestPicklingCompatibility(unittest.TestCase):
+    def test_pickling_of_normal_classes_without_parentheses(self):
+        queue = Queue()
+        queue.put(TestPicklingCompatibilityMyClassNoParentheses(torch.zeros(5)))
+        queue.get(timeout=1)
+
+    def test_pickling_of_normal_classes_with_parentheses(self):
+        queue = Queue()
+        queue.put(TestPicklingCompatibilityMyClassParentheses(torch.zeros(5)))
+        queue.get(timeout=1)
+
+    def test_pickling_of_namedtuple_without_parentheses(self):
+        queue = Queue()
+        queue.put(TestPicklingCompatibilityMyNamedTupleNoParentheses(x=torch.zeros(5)))
+        queue.get(timeout=1)
+
+    def test_pickling_of_namedtuple_with_parentheses(self):
+        queue = Queue()
+        queue.put(TestPicklingCompatibilityMyNamedTupleParentheses(x=torch.zeros(5)))
+        queue.get(timeout=1)
+        
 
 if __name__ == "__main__":
     unittest.main()

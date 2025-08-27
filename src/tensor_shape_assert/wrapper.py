@@ -294,11 +294,13 @@ def check_constraints(
 
 
 def check_tensor_shapes(
+        fn_or_cls = None,
+        *,
         constraints: list[str | Callable[[dict[str, int]], bool]] = None,
         ints_to_variables: bool = True,
         experimental_enable_autogen_constraints: bool = False,
         check_mode: CheckMode | None = None,
-        *args, **kwargs
+        # *args, **kwargs
 ):
     """
     Enables tensor checking for the decorated function.
@@ -324,133 +326,148 @@ def check_tensor_shapes(
         Additionally, variable names must follow the Python variable naming
         conventions.
     """
-
-    if len(args) > 0 or len(kwargs) > 0:
-        raise TensorShapeAssertError(
-            "Invalid arguments for check_tensor_shapes. Maybe you forgot "
-            "brackets after the decorator?"
-        )
     
     if constraints is None:
         constraints = []
     
-    def _make_check_tensor_shapes_wrapper(fn=None, *args, **kwargs):
-        if fn is None or len(args) > 0 or len(kwargs) > 0:
-            raise TensorShapeAssertError(
-                "Invalid arguments for check_tensor_shapes. Maybe you forgot "
-                "brackets after the decorator?"
-            )
-
-        @wraps(fn)
-        def _check_tensor_shapes_wrapper(*args, **kwargs):
-            
-            # get function signature
-            
-            signature = inspect.signature(fn)
-
-            # shortcut function if check mode is different to 'always'
-
-            _check_mode = _global_check_mode if check_mode is None else check_mode
-
-            if  (
-                    (_check_mode == 'once'
-                    and signature in _checked_functions)
-                    or _check_mode == 'never'
-                ):
-                return fn(*args, **kwargs)
-            
-            _checked_functions.add(signature)
-
-            # bind parameters
-            
-            bindings = signature.bind(*args, **kwargs)
-            bindings.apply_defaults()
-            bound_arguments = dict(bindings.arguments)
-
-            # check input type hints
-
-            if ints_to_variables:
-                variables = {k: v for k, v in bound_arguments.items() if type(v) is int}
-            else:
-                variables = dict()
-
-            for key, parameter in signature.parameters.items():
-                try:
-                    variables = check_iterable(
-                        annotation=parameter.annotation,
-                        obj=bound_arguments[key],
-                        variables=variables
-                    )
-                except TensorShapeAssertError as e:
-                    # wrap exception to provide location info (input)
-                    raise TensorShapeAssertError(
-                        f"Shape assertion failed during check of input "
-                        f"parameter '{key}' of '{fn.__name__}': {e}"
-                    )
+    def _dispatch_tensor_shapes_wrapper(fn_or_cls):
+        def _make_check_tensor_shapes_wrapper(fn):
+            def _check_tensor_shapes_wrapper(*args, **kwargs):
                 
-            # check input variable constraints (allow errors for now)
-            check_constraints(constraints, variables, skip_on_error=True)
+                # get function signature
+                
+                signature = inspect.signature(fn)
 
-            if experimental_enable_autogen_constraints:
-                for i, (k, v) in enumerate(variables.items()):
-                    temp_variables = dict(variables)
-                    temp_replace_name = f"__temp_var_{i}"
-                    temp_replace_val = temp_variables[k]
-                    del temp_variables[k]
-                    temp_variables[temp_replace_name] = temp_replace_val
-                    temp_constraint = f"{temp_replace_name} == {k}"
-                    check_constraints([temp_constraint], temp_variables, skip_on_error=True)
+                # shortcut function if check mode is different to 'always'
 
-            # store variables in global stack
-            _current_variables_stack.append(variables)
+                _check_mode = _global_check_mode if check_mode is None else check_mode
 
-            # call function
-            # protect function call to gracefully handle variables stack
+                if  (
+                        (_check_mode == 'once'
+                        and signature in _checked_functions)
+                        or _check_mode == 'never'
+                    ):
+                    return fn(*args, **kwargs)
+                
+                _checked_functions.add(signature)
 
-            try:
-                return_value = fn(*args, **kwargs)
-            except Exception:
-                _current_variables_stack.pop()
-                raise  # reraise
-            
-            # check outputs
+                # bind parameters
+                
+                bindings = signature.bind(*args, **kwargs)
+                bindings.apply_defaults()
+                bound_arguments = dict(bindings.arguments)
 
-            try:
-                check_iterable(
-                    annotation=signature.return_annotation, 
-                    obj=return_value,
-                    variables=variables
-                )
-            except TensorShapeAssertError as e:
-                # wrap exception to provide location info (output)
-                raise TensorShapeAssertError(
-                    f"Shape assertion failed during check output of "
-                    f"'{fn.__name__}': {e}"
-                )
-            finally:
-                # check output variable constraints (this time strictly)
-                check_constraints(constraints, variables, skip_on_error=False)
+                # check input type hints
+
+                if ints_to_variables:
+                    variables = {k: v for k, v in bound_arguments.items() if type(v) is int}
+                else:
+                    variables = dict()
+
+                for key, parameter in signature.parameters.items():
+                    try:
+                        variables = check_iterable(
+                            annotation=parameter.annotation,
+                            obj=bound_arguments[key],
+                            variables=variables
+                        )
+                    except TensorShapeAssertError as e:
+                        # wrap exception to provide location info (input)
+                        raise TensorShapeAssertError(
+                            f"Shape assertion failed during check of input "
+                            f"parameter '{key}' of '{fn.__name__}': {e}"
+                        )
+                    
+                # check input variable constraints (allow errors for now)
+                check_constraints(constraints, variables, skip_on_error=True)
 
                 if experimental_enable_autogen_constraints:
                     for i, (k, v) in enumerate(variables.items()):
                         temp_variables = dict(variables)
                         temp_replace_name = f"__temp_var_{i}"
                         temp_replace_val = temp_variables[k]
-                        # del temp_variables[k]
+                        del temp_variables[k]
                         temp_variables[temp_replace_name] = temp_replace_val
                         temp_constraint = f"{temp_replace_name} == {k}"
-                        check_constraints([temp_constraint], temp_variables, skip_on_error=False)
+                        check_constraints([temp_constraint], temp_variables, skip_on_error=True)
 
-                # remove vars from stack
-                _current_variables_stack.pop()
-            
-            # return
+                # store variables in global stack
+                _current_variables_stack.append(variables)
 
-            return return_value
+                # call function
+                # protect function call to gracefully handle variables stack
 
-        return _check_tensor_shapes_wrapper
+                try:
+                    return_value = fn(*args, **kwargs)
+                except Exception:
+                    _current_variables_stack.pop()
+                    raise  # reraise
+                
+                # check outputs
 
-    return _make_check_tensor_shapes_wrapper
+                try:
+                    check_iterable(
+                        annotation=signature.return_annotation, 
+                        obj=return_value,
+                        variables=variables
+                    )
+                except TensorShapeAssertError as e:
+                    # wrap exception to provide location info (output)
+                    raise TensorShapeAssertError(
+                        f"Shape assertion failed during check output of "
+                        f"'{fn.__name__}': {e}"
+                    )
+                finally:
+                    # check output variable constraints (this time strictly)
+                    check_constraints(constraints, variables, skip_on_error=False)
+
+                    if experimental_enable_autogen_constraints:
+                        for i, (k, v) in enumerate(variables.items()):
+                            temp_variables = dict(variables)
+                            temp_replace_name = f"__temp_var_{i}"
+                            temp_replace_val = temp_variables[k]
+                            # del temp_variables[k]
+                            temp_variables[temp_replace_name] = temp_replace_val
+                            temp_constraint = f"{temp_replace_name} == {k}"
+                            check_constraints([temp_constraint], temp_variables, skip_on_error=False)
+
+                    # remove vars from stack
+                    _current_variables_stack.pop()
+                
+                # return
+
+                return return_value
+            return _check_tensor_shapes_wrapper
+
+        # dispatch wrt parameter type (function, class, immutable classes)
+        # to ensure pickling of decorated classes works properly, we should replace
+        # the __init__ function instead and return the original class. For classes
+        # without meaningful __init__ (e.g. NamedTuple), we wrap __new__ instead.
+
+        if isinstance(fn_or_cls, type):
+            # If __init__ is the default object.__init__, this is likely a tuple-like
+            # (e.g., typing.NamedTuple). Wrap __new__ instead.
+            if getattr(fn_or_cls, "__init__") is object.__init__:
+                orig_new = fn_or_cls.__new__
+                # Bind as a function; Python treats __new__ as a static method by convention.
+                new_wrapper = _make_check_tensor_shapes_wrapper(orig_new)
+                if isinstance(getattr(fn_or_cls, "__new__", None), staticmethod):
+                    fn_or_cls.__new__ = staticmethod(new_wrapper)
+                else:
+                    fn_or_cls.__new__ = new_wrapper
+                return fn_or_cls
+            else:
+                # Regular class: wrap __init__
+                orig_init = fn_or_cls.__init__
+                fn_or_cls.__init__ = _make_check_tensor_shapes_wrapper(orig_init)
+                return fn_or_cls
+        else:
+            return _make_check_tensor_shapes_wrapper(fn_or_cls)
+
+    if fn_or_cls is None:
+        return _dispatch_tensor_shapes_wrapper    
+    else: # its a function
+        return _dispatch_tensor_shapes_wrapper(fn_or_cls)
 
 def check_if_context_is_available():
     if len(_current_variables_stack) == 0:
