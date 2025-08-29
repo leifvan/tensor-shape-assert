@@ -1,25 +1,48 @@
 # tensor-shape-assert
 
+A minimal utility library that
+
+* ensures correct input and output shapes of arrays in your function during runtime,
+* adds code readability through clear shape annotations,
+* supports any array class that exposes a ``shape`` property,
+* and a lot more!
+
 ## Usage
-Decorate functions with ``@check_tensor_shapes()`` and any parameter with a type hint of type ``ShapedTensor[<desc>]`` will be dynamically checked for the correct shape. A shape descriptor is a string of space-separated length descriptions for each dimension, where
+Decorate functions with ``@check_tensor_shapes()`` and any parameter with a type hint of type ``ShapedTensor[<desc>]`` will be dynamically checked for the correct shape. A shape descriptor is a *string* of space-separated length descriptions for each dimension. The return value can also be annotated in the same way.
 
-* sizes can be defined explicitly as an integer, e.g. ``"5 3"`` (only tensors of shape ``(5, 3)`` are valid)
-* ``*`` can be used as a wildcard, allowing any size, e.g. ``"* 5"`` (any 2D tensor with length 5 in the second dimension is valid)
-* sizes may be given as a variable, e.g. ``"b 3"`` (any 2D tensor with length 3 in the second dimension is valid)
-* an arbitrary length of batch dimensions can be defined, e.g. ``"... k 3"`` (an n-dimensional tensor (n >= 2) with length 3 in the last dimension)
-* the batch dimension(s) can also be named to be matched across annotations, e.g. ``"...B n 4"`` (an n-dimensional tensor (n >= 2) with length 4 in the last dimension)
-* variables can have arbitrary names, as long as they are not interpretable by the other rules, e.g. ``"my_first_dimension 123_456_test 2"`` (any 3D tensor with length 2 in the third dimension). See also dtype annotations below.
-* using an empty string ``""`` or the alias ``ScalarTensor`` checks for scalar tensors.
+### Integers
 
-If multiple parameters are annotated with the same variable, the shapes must have the same length along that dimension, i.e. if a tensor ``x`` has annotation ``"a b 3"`` and another tensor ``y`` has annotation ``"b 2"``, then ``x.shape[1]`` must be equal to ``y.shape[0]``.
+ * Sizes can be defined explicitly as an integer, e.g. ``"5 3"`` (only arrays of shape ``(5, 3)`` are valid)
+ * ``*`` can be used as a wildcard, allowing any size, e.g. ``"* 5"`` (any 2D tensor with length 5 in the second dimension is valid)
+ * using an empty string ``""`` or the alias ``ScalarTensor`` checks for scalar tensors.
 
-The return value can also be annotated in the same way. Additionally, the the annotations can be arbitrarily nested in tuples or lists. Optional ``ShapedTensor`` parameters must be explicitly annotated as a union with the ``NoneType`` (see examples below).
+### Variables
 
-Parameters of type ``int`` are added to the list of shape variables, which allows to specify fixed shapes dynamically. This behavior can be turned off with ``@check_tensor_shapes(ints_to_variables=False)``. An example is shown below.
+ * Sizes may be given as a variable, e.g. ``"b 3"`` (any 2D tensor with length 3 in the second dimension is valid)
+ * Variables can have arbitrary names, as long as they are not interpretable by the other rules, e.g. ``"my_first_dimension 123_456_test 2"`` (any 3D tensor with length 2 in the third dimension). See also dtype annotations below.
 
-The dtype can be annotated by adding a dtype kind (``bool, int, uint, float, complex, numeric``) and optionally a bit size (e.g. ``uint8``) anywhere in the descriptor. Examples: ``"uint8 a b 3"``, or ``"a b 3 float"``. The names above can therefore not be used as a variable names.
+ If multiple parameters are annotated with the same variable, the shapes must have the same length along that dimension, i.e. if a tensor ``x`` has annotation ``"a b 3"`` and another tensor ``y`` has annotation ``"b 2"``, then ``x.shape[1]`` must be equal to ``y.shape[0]``.
 
-There are convenience functions that access the current states of the shape variables inside the wrapped function. You can use ``get_shape_variables(<desc>)`` to retrieve a tuple of variable variables states directly, for example if you are inside a function where a tensor was annotated as ``x: ShapedTensor["a 3 b"]``, you can access the values of `a` and `b` as ``a, b = get_shape_variables("a b")``. You can even go one step further and do a check tensors inside the wrapped function directly with ``assert_shape_here(x, <desc>)``, which will run a check on the object or shape ``x`` given the descriptor and add previously unseen variables in the descriptor to the state inside the wrapped function. This way you can check the output of the function against tensor shapes that only appear in the body of the function.
+ Parameters of type ``int`` are added to the list of shape variables, which allows to specify fixed shapes dynamically. This behavior can be turned off with ``@check_tensor_shapes(ints_to_variables=False)``. An example is shown below.
+
+### Batch Dimensions
+
+ * An arbitrary length of batch dimensions can be defined, e.g. ``"... k 3"`` (an n-dimensional tensor (n >= 2) with length 3 in the last dimension)
+ * The batch dimension(s) can also be named to be matched across annotations, e.g. ``"...B n 4"`` (an n-dimensional tensor (n >= 2) with length 4 in the last dimension)
+
+### Nested Annotations and Optional Values
+
+ Additionally, the the annotations can be arbitrarily nested in tuples or lists. Optional ``ShapedTensor`` parameters must be explicitly annotated as a union with the ``NoneType`` (see examples below). ``NamedTuple`` classes are also supported.
+
+### Dtypes
+
+ The dtype can be annotated by adding a dtype kind (``bool, int, uint, float, complex, numeric``) and optionally a bit size (e.g. ``uint8``) anywhere in the descriptor. Examples: ``"uint8 a b 3"``, or ``"a b 3 float"``. The names above can therefore not be used as a variable names.
+
+### Get Variable States
+
+There are convenience functions that access the current states of the shape variables inside the wrapped function. You can use ``get_shape_variables(<desc>)`` to retrieve a tuple of variable variables states directly, for example if you are inside a function where a tensor was annotated as ``x: ShapedTensor["a 3 b"]``, you can access the values of `a` and `b` as ``a, b = get_shape_variables("a b")``.
+
+You can even go one step further and do a check tensors inside the wrapped function directly with ``assert_shape_here(x, <desc>)``, which will run a check on the object or shape ``x`` given the descriptor and add previously unseen variables in the descriptor to the state inside the wrapped function. This way you can check the output of the function against tensor shapes that only appear in the body of the function.
 
 ## Installation
 
@@ -30,7 +53,7 @@ pip install git+https://github.com/leifvan/tensor-shape-assert
 
 ## Compatibility
 
-While the examples below are using PyTorch, tensor-shape-assert requires very minimal functionality and is compatible with any array class that has a ``shape`` method, which includes popular frameworks such as NumPy, TensorFlow, Jax and more generally frameworks that conform to the [Python array API standard](https://data-apis.org/array-api/latest/).
+While the examples below are using PyTorch, *tensor-shape-assert* requires very minimal functionality and is compatible with any array class that has a ``shape`` method, which includes popular frameworks such as NumPy, TensorFlow, Jax and more generally frameworks that conform to the [Python array API standard](https://data-apis.org/array-api/latest/).
 
 ## Examples
 
