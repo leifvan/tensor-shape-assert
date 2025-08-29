@@ -185,8 +185,14 @@ releases.
 reraise
 * [ ] improve annotation handling for method overrides in subclasses
 * [ ] add tests for frameworks other than PyTorch
+  * [x] numpy
+  * [ ] jax
+  * [ ] cupy
+  * [ ] sparse
+  * [ ] donnx
+  * [ ] dask
 * [ ] check compatibility with static type checkers
 * [ ] rewrite README to give a cleaner overview over the features
 * [ ] support union of shape descriptors (but this might break the current simplicity)
 * [ ] benchmark speed to understand impact in tight loops
-* [ ] compatibility for torch.compile (or at least auto-disable check)
+* [x] compatibility for torch.compile (or at least auto-disable check)

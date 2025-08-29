@@ -1,3 +1,5 @@
 **/__pycache__
 src/tensor_shape_assert.egg-info
 build
+**/.nox
+**/.pytest_cache

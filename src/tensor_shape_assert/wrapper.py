@@ -1,11 +1,15 @@
-from functools import wraps
+import sys
 import types
 import inspect
-from typing import Any, Callable, ForwardRef, Literal, TypeVar
+from typing import Any, Callable, Literal
 import warnings
 
 from .utils import TensorShapeAssertError, check_if_dtype_matches
-from .descriptor import descriptor_to_variables, split_to_descriptor_items, clean_up_descriptor
+from .descriptor import (
+    descriptor_to_variables,
+    split_to_descriptor_items,
+    clean_up_descriptor
+)
 
 # define errors
 
@@ -16,9 +20,9 @@ class VariableConstraintError(TensorShapeAssertError): pass
 class DtypeConstraintError(TensorShapeAssertError): pass
 class UnionTypeUnsupportedError(TensorShapeAssertError): pass
 
-# class DeviceConstraintError(TensorShapeAssertError):
-#     pass
+# define warnings
 
+class CheckDisabledWarning(RuntimeWarning): pass
 
 # try importing torch for type hints
 
@@ -41,30 +45,14 @@ except ImportError:
 
 # define str subclasses to identify shape descriptors
 
-"""
-'bool': boolean data types (e.g., bool).
-
-'signed integer': signed integer data types (e.g., int8, int16, int32, int64).
-
-'unsigned integer': unsigned integer data types (e.g., uint8, uint16, uint32, uint64).
-
-'integral': integer data types. Shorthand for ('signed integer', 'unsigned integer').
-
-'real floating': real-valued floating-point data types (e.g., float32, float64).
-
-'complex floating': complex floating-point data types (e.g., complex64, complex128).
-
-'numeric': numeric data types. Shorthand for ('integral', 'real floating', 'complex floating').
-"""
-
 _NAME_TO_KIND = {
     'bool': 'bool',
     'int': 'signed integer',
     'uint': 'unsigned integer',
-    'integral': 'integral',
+    'integral': 'integral', # (int + uint)
     'float': 'real floating',
     'complex': 'complex floating',
-    'numeric': 'numeric'
+    'numeric': 'numeric' # (everything except bool)
 }
 _DTYPE_SIZES = (8, 16, 32, 64, 128, None)
 
@@ -250,8 +238,23 @@ CheckMode = Literal["always", "once", "never"]
 _global_check_mode: CheckMode = "always"
 _checked_functions: set = set()
 
+def assert_valid_check_mode(mode: CheckMode):
+    if mode is not None and mode not in CheckMode.__args__:
+        raise TensorShapeAssertError(f"Invalid check mode: '{mode}'")
+
 def set_global_check_mode(mode: CheckMode):
+    """
+    Set the global check mode. Possible optionals are
+    * ``"always"``: Always check all functions wrapped with
+     ``check_tensor_shapes``
+    * ``"once"``: Check each function only once
+    * ``"never"``: Never check any functions
+
+    This behavior is overwritten by the per-function check mode.
+    """
     global _global_check_mode
+    assert_valid_check_mode(mode)
+
     _global_check_mode = mode
 
 
@@ -300,7 +303,6 @@ def check_tensor_shapes(
         ints_to_variables: bool = True,
         experimental_enable_autogen_constraints: bool = False,
         check_mode: CheckMode | None = None,
-        # *args, **kwargs
 ):
     """
     Enables tensor checking for the decorated function.
@@ -325,28 +327,44 @@ def check_tensor_shapes(
         naming the variables as expressions does not support any whitespaces.
         Additionally, variable names must follow the Python variable naming
         conventions.
+    check_mode : CheckMode, optional
+        The check mode to use for this function. If not specified, the global
+        check mode is used. See ``set_global_check_mode`` for details.
     """
     
     if constraints is None:
         constraints = []
+
+    assert_valid_check_mode(check_mode)
     
     def _dispatch_tensor_shapes_wrapper(fn_or_cls):
         def _make_check_tensor_shapes_wrapper(fn):
-            def _check_tensor_shapes_wrapper(*args, **kwargs):
-                
-                # get function signature
-                
-                signature = inspect.signature(fn)
 
-                # shortcut function if check mode is different to 'always'
+            # get function signature
+            signature = inspect.signature(fn)
+
+            def _check_tensor_shapes_wrapper(*args, **kwargs):
+
+                # get check mode
 
                 _check_mode = _global_check_mode if check_mode is None else check_mode
+
+
+                # shortcut function if check mode is different to 'always'
 
                 if  (
                         (_check_mode == 'once'
                         and signature in _checked_functions)
                         or _check_mode == 'never'
                     ):
+                    return fn(*args, **kwargs)
+                elif "torch" in sys.modules and torch.compiler.is_compiling():
+                    # skip and warn if is inside torch compile
+                    warnings.warn(CheckDisabledWarning(
+                        "TorchScript compilation is enabled. Tensor shape "
+                        "checks will be skipped inside of the compile "
+                        "context."
+                    ))
                     return fn(*args, **kwargs)
                 
                 _checked_functions.add(signature)
