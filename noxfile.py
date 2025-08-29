@@ -1,7 +1,7 @@
 import nox
 
 # Reuse environments to speed things up locally (optional)
-# nox.options.reuse_venv = "yes"
+nox.options.reuse_venv = "yes"
 
 @nox.session(python="3.10")
 def numpy(session):

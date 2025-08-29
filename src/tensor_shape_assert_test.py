@@ -603,8 +603,6 @@ class TestMisc(unittest.TestCase):
             
             test(x=xp.zeros(5))
 
-
-
 class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
     def test_single_context(self):
         @check_tensor_shapes()
@@ -655,6 +653,40 @@ class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
             return x.sum(axis=1)
         
         test(x=xp.zeros((5, 6)))
+
+    def test_state_does_not_collect_ints(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["a 2"]):
+            k = get_shape_variables("2")
+            self.assertIsNone(k)
+            return x
+
+        test(xp.zeros((3, 2)))
+
+    def test_state_has_batch_dimension(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["... 4"]):
+            batch = get_shape_variables("...")
+            self.assertTupleEqual(batch, (1, 2, 3))
+            return x
+
+        test(xp.zeros((1, 2, 3, 4)))
+
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["4 ..."]):
+            batch = get_shape_variables("...")
+            self.assertTupleEqual(batch, (3, 2, 1))
+            return x
+
+        test(xp.zeros((4, 3, 2, 1)))
+
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["1 ... 4"]):
+            batch = get_shape_variables("...")
+            self.assertTupleEqual(batch, (2, 3))
+            return x
+
+        test(xp.zeros((1, 2, 3, 4)))
 
 
 class TestPositionalAndMixedArguments(unittest.TestCase):
@@ -1345,6 +1377,7 @@ class TestTorchCompile(unittest.TestCase):
 
 
         self.assertTrue(True)
+
 
 if __name__ == "__main__":
     unittest.main()

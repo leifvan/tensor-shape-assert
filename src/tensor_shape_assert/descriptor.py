@@ -147,7 +147,7 @@ def descriptor_to_variables(shape_descriptor, shape, variables=None):
                 f"{variables}."
             )
             
-        if resulting_value is not None:
+        if resulting_value is not None and not isinstance(desc_item, int):
             variables[desc_item] = resulting_value
 
     return variables
