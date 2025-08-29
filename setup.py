@@ -7,7 +7,7 @@ long_description = (here / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="tensor-shape-assert",
-    version="0.2.3",
+    version="0.2.4",
     description="A simple runtime assert library for tensor-based frameworks.",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -27,4 +27,10 @@ setup(
     install_requires=[
         "array-api-compat>=1.12",
     ],
+    extras_require={
+        "dev": [
+            "nox",
+            "pytest",
+        ],
+    }
 )

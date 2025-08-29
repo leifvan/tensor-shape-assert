@@ -3,6 +3,7 @@ import types
 import inspect
 from typing import Any, Callable, Literal
 import warnings
+from collections.abc import Collection
 
 from .utils import TensorShapeAssertError, check_if_dtype_matches
 from .descriptor import (
@@ -172,8 +173,14 @@ def unroll_iterable_annotation(annotation, obj):
                 )
             sub_annotations = [annotation.__args__[0]] * len(obj)
 
-        if sub_annotations is not None:
-            
+        if sub_annotations is not None:  # it's either tuple or list
+
+            if not hasattr(obj, "__len__"):
+                raise TensorShapeAssertError(
+                    f"Expected parameter of type {type(obj)} with annotation "
+                    f"{annotation} to have a length."
+                )
+
             if len(sub_annotations) != len(obj):
                 raise AnnotationMatchingError(
                     f"Number of expected annotated elements in iterable "

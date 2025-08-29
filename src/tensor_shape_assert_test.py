@@ -46,11 +46,14 @@ elif lib == "sparse":
     import sparse
     xp = array_api_compat.array_namespace(sparse.zeros(1))
 elif lib == "dask":
-    import dask
-    xp = array_api_compat.array_namespace(dask.zeros(1))
+    import dask.array as da
+    xp = array_api_compat.array_namespace(da.zeros(1))
 else:
     raise ValueError(f"Unsupported library: {lib}")
 
+
+def library_has_types(type_names: list[str]) -> bool:
+    return all(hasattr(xp, t) for t in type_names)
 
 class Test1DAnnotationsKeyword(unittest.TestCase):
     def test_constant_1d_input_shape_checked(self):
@@ -229,7 +232,7 @@ class TestNDAnnotationsKeyword(unittest.TestCase):
     def test_variable_nd_input_shape_checked(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["b 3 2"], y: ShapedTensor["3 c 2"]) -> ShapedTensor["3 c"]:
-            return (x[:1, :1] + y).sum(axis=2)
+            return (x[:1, :1, :] + y).sum(axis=2)
         
         x = xp.zeros((17, 3, 2))
         y = xp.zeros((3, 19, 2))
@@ -523,19 +526,19 @@ class TestTensorDescriptor(unittest.TestCase):
     @check_tensor_shapes()
     def test_multiple_whitespaces_ignored(self):
         def test(x: ShapedTensor["a   b c  "]) -> ShapedTensor[" b   "]:
-            return x.mean(axis=0)[:, 0]
+            return xp.mean(x, axis=0)[:, 0]
         test(x=xp.zeros((3, 4, 5)))
     
     def test_commas_ignored(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["a,b,c"]) -> ShapedTensor["b,,"]:
-            return x.mean(axis=0)[:, 0]
+            return xp.mean(x, axis=0)[:, 0]
         test(x=xp.zeros((3, 4, 5)))
 
     def test_parentheses_ignored(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["a b[c"]) -> ShapedTensor["b]"]:
-            return x.mean(axis=0)[:, 0]
+            return xp.mean(x, axis=0)[:, 0]
         test(x=xp.zeros((3, 4, 5)))
 
         
@@ -625,7 +628,7 @@ class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
         def test(x: ShapedTensor["a b c"]) -> ShapedTensor["c"]:
             a, b, c = get_shape_variables("a b c")
             self.assertTupleEqual(x_input.shape, (a, b, c))
-            y = sum_plus_one(x=x[0])
+            y = sum_plus_one(x=x[0, :, :])
             return y
         
         test(x=x_input)
@@ -675,7 +678,7 @@ class TestArbitrarilyNestedInputs(unittest.TestCase):
                 ShapedTensor["a 2"],
                 ShapedTensor["b 2"],
         ], *args) -> ShapedTensor["a"]:
-            return (x[0] * x[1][0][0]).sum(axis=1)
+            return (x[0] * x[1][0, :][0]).sum(axis=1)
         
         test((
             xp.zeros((10, 2)),
@@ -727,8 +730,18 @@ class TestArbitrarilyNestedInputs(unittest.TestCase):
                 (xp.zeros((10, 2)),),
                 (xp.zeros((10, 2)),),
             ))
+
+        with self.assertRaises(TensorShapeAssertError):
+            test(
+                xp.zeros((10, 2)),
+                None
+            )
              
     def test_complex_input_tuples(self):
+
+        if not library_has_types(["complex64", "complex128"]):
+            self.skipTest(f"'{xp.__name__}' doesn't support complex types.")
+
         @check_tensor_shapes()
         def test(
                 x: tuple[
@@ -771,7 +784,7 @@ class TestLocalShapeChecking(unittest.TestCase):
     def test_local_shape_check_positive(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["a 1"], y: ShapedTensor["...B 3"]) -> ShapedTensor["...B"]:
-            z = y[..., 0] + x[0]
+            z = y[..., 0] + x[0, :]
             assert_shape_here(z, "...B")
             return z
 
@@ -780,7 +793,7 @@ class TestLocalShapeChecking(unittest.TestCase):
     def test_local_shape_check_negative(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["a 1"], y: ShapedTensor["...B 3"]) -> ShapedTensor["...B"]:
-            z = y[..., 0] + x[0]
+            z = y[..., 0] + x[0, :]
             assert_shape_here(z, "a")
             return z
 
@@ -788,20 +801,18 @@ class TestLocalShapeChecking(unittest.TestCase):
             test(x=xp.zeros((2, 1)), y=xp.zeros((5, 4, 3)))
 
     def test_local_shape_check_updates_context(self):
-        @check_tensor_shapes()
+
+        @check_tensor_shapes(ints_to_variables=False)
         def test(
                 x: ShapedTensor["a"],
                 y: ShapedTensor["b"],
                 c: int | None
         ) -> ShapedTensor["c"]:
-            z = x[None, :] * y[:, None]
-            k = xp.zeros((1, 1, 5))
-            f = z[:, :, None] * k
-
             if c is not None:
                 assert_shape_here((c,), "c")
 
-            return f.reshape(-1, 5).sum(axis=1)
+            f = xp.zeros((x.shape[0] * y.shape[0], 5))
+            return f.sum(axis=1)
         
         test(xp.zeros(6), xp.zeros(7), c=42)
         test(xp.zeros(6), xp.zeros(7), c=None)
@@ -815,7 +826,7 @@ class TestOptionalShapeAnnotation(unittest.TestCase):
         @check_tensor_shapes()
         def test(x: ShapedTensor["a 1"] | None) -> ShapedTensor["1"]:
             if x is not None:
-                return x[0]
+                return x[0, :]
             else:
                 return xp.zeros(1)
         
@@ -826,7 +837,7 @@ class TestOptionalShapeAnnotation(unittest.TestCase):
         @check_tensor_shapes()
         def test(x: ShapedTensor["a 1"] | None) -> tuple[ShapedTensor["1"]] | None:
             if x is not None:
-                return x[0]
+                return x[0, :]
             else:
                 return (xp.zeros(1), )
         
@@ -933,7 +944,7 @@ class TestDtypeAnnotationTorch(unittest.TestCase):
         test(xp.zeros((1, 2, 3), dtype=xp.float64))
 
         with self.assertRaises(TensorShapeAssertError):
-            test(xp.zeros((1, 2, 3), dtype=xp.float16))
+            test(xp.zeros((1, 2, 3), dtype=xp.float32))
 
     def test_unspecified_float_types(self):
         @check_tensor_shapes()
@@ -946,19 +957,27 @@ class TestDtypeAnnotationTorch(unittest.TestCase):
             test(xp.zeros((1, 2, 3), dtype=xp.int32))
 
     def test_specified_complex_type(self):
+
+        if not library_has_types(["complex64", "complex128"]):
+            self.skipTest(f"'{xp.__name__}' doesn't support complex types.")
+
         @check_tensor_shapes()
-        def test(x: ShapedTensor["complex128 n m 3"]) -> ShapedTensor["float16 m"]:
-            return xp.astype(x.sum(axis=(0, 2)).real, xp.float16)
-        
+        def test(x: ShapedTensor["complex128 n m 3"]) -> ShapedTensor["float32 m"]:
+            return xp.astype(x.sum(axis=(0, 2)).real, xp.float32)
+
         test(xp.zeros((1, 2, 3), dtype=xp.complex128))
 
         with self.assertRaises(TensorShapeAssertError):
             test(xp.zeros((1, 2, 3), dtype=xp.float32))
 
     def test_unspecified_complex_type(self):
+
+        if not library_has_types(["complex64", "complex128"]):
+            self.skipTest(f"'{xp.__name__}' doesn't support complex types.")
+
         @check_tensor_shapes()
-        def test(x: ShapedTensor["complex n m 3"]) -> ShapedTensor["float16 m"]:
-            return xp.astype(x.sum(axis=(0, 2)).real, xp.float16)
+        def test(x: ShapedTensor["complex n m 3"]) -> ShapedTensor["float32 m"]:
+            return xp.astype(x.sum(axis=(0, 2)).real, xp.float32)
         
         test(xp.zeros((1, 2, 3), dtype=xp.complex128))
         test(xp.zeros((1, 2, 3), dtype=xp.complex64))
@@ -968,29 +987,29 @@ class TestDtypeAnnotationTorch(unittest.TestCase):
 
     def test_ignored_type(self):
         @check_tensor_shapes()
-        def test(x: ShapedTensor["n m 3"], rt) -> ShapedTensor["float16 m"]:
-            return xp.astype(x.sum(axis=(0, 2)).real, rt)
+        def test(x: ShapedTensor["n m 3"], rt) -> ShapedTensor["float32 m"]:
+            return xp.astype(x.sum(axis=(0, 2)), rt)
         
-        test(xp.zeros((1, 2, 3), dtype=xp.complex64), rt=xp.float16)
+        test(xp.zeros((1, 2, 3), dtype=xp.float64), rt=xp.float32)
 
         with self.assertRaises(TensorShapeAssertError):
-            test(xp.zeros((1, 2, 3), dtype=xp.complex64), rt=xp.float32)
+            test(xp.zeros((1, 2, 3), dtype=xp.float32), rt=xp.float64)
 
     def test_bool_with_bitsize_raises_error(self):
         @check_tensor_shapes()
-        def test(x: ShapedTensor["bool8 n m 3"], rt) -> ShapedTensor["float16 m"]:
-            return xp.astype(x.sum(axis=(0, 2)).real, rt)
+        def test(x: ShapedTensor["bool8 n m 3"], rt) -> ShapedTensor["float32 m"]:
+            return xp.astype(x.sum(axis=(0, 2)), rt)
 
         with self.assertRaises(TensorShapeAssertError):
-            test(xp.zeros((1, 2, 3), dtype=xp.bool), rt=xp.float32)
+            test(xp.zeros((1, 2, 3), dtype=xp.bool), rt=xp.float64)
 
     def test_dtype_is_position_agnostic(self):
         @check_tensor_shapes()
-        def test(x: ShapedTensor["  n m complex: 3 "]) -> ShapedTensor["m  |float16|"]:
-            return xp.astype(x.sum(axis=(0, 2)).real, xp.float16)
+        def test(x: ShapedTensor["  n m int: 3 "]) -> ShapedTensor["m  |float32|"]:
+            return xp.astype(x.sum(axis=(0, 2)), xp.float32)
         
-        test(xp.zeros((1, 2, 3), dtype=xp.complex128))
-        test(xp.zeros((1, 2, 3), dtype=xp.complex64))
+        test(xp.zeros((1, 2, 3), dtype=xp.int64))
+        test(xp.zeros((1, 2, 3), dtype=xp.int32))
 
         with self.assertRaises(TensorShapeAssertError):
             test(xp.zeros((1, 2, 3), dtype=xp.float64))
@@ -1286,11 +1305,11 @@ class TestTorchCompile(unittest.TestCase):
         set_global_check_mode('always')
         return super().tearDown()
 
+    def setUp(self):
+        if os.environ["TSA_TEST_LIBRARY"] != "torch":
+            self.skipTest("compile only tested for torch")
+
     def test_torch_compile_disables_check_but_warns(self):
-        try:
-            import torch
-        except ImportError:
-            self.skipTest("torch not available")
 
         set_global_check_mode('always')
 
@@ -1310,12 +1329,8 @@ class TestTorchCompile(unittest.TestCase):
             compiled_test(xp.zeros((4, 3, 1)))
 
     def test_torch_compile_does_not_warn_if_check_disabled(self):
-        try:
-            import torch
-        except ImportError:
-            self.skipTest("torch not available")
 
-        set_global_check_mode('never') # DISABLE ME 1
+        set_global_check_mode('never')
 
         @check_tensor_shapes()
         def test(x: ShapedTensor["n m 2"]) -> ShapedTensor["2"]:
