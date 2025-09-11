@@ -214,3 +214,4 @@ reraise
 * [ ] benchmark speed to understand impact in tight loops
 * [x] compatibility for torch.compile (or at least auto-disable check)
 * ~~[ ] device annotation~~ (device definition not standardized in Python array API 2024.12, see [this section of the specifications](https://data-apis.org/array-api/2024.12/design_topics/device_support.html#device-support))
+* [ ] add variable names for dtype
