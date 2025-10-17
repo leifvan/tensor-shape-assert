@@ -215,3 +215,12 @@ reraise
 * [x] compatibility for torch.compile (or at least auto-disable check)
 * ~~[ ] device annotation~~ (device definition not standardized in Python array API 2024.12, see [this section of the specifications](https://data-apis.org/array-api/2024.12/design_topics/device_support.html#device-support))
 * [ ] add variable names for dtype
+* [ ] add more helpful message when parameter / output is not the expected type
+* [ ] (maybe instead of the one before) catch and reraise all exceptions inside
+ wrapper and reraise with additional info about exception location
+* [ ] improve hints for static type checking (currently it assumes either torch
+ or the object just having a .shape parameter)
+* [ ] come up with a way to allow union of shape descriptors
+* [ ] make get_shape_variables work in check modes "never" and "once" without
+ performance overhead
+* [ ] work on performance overhead in general
