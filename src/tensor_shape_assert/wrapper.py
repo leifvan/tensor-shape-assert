@@ -1,9 +1,19 @@
-import sys
 import types
 import inspect
 from typing import Any, Callable, Literal
 import warnings
-from collections.abc import Collection
+
+# try to import array API protocol for type annotations
+
+try:
+    from array_api._2024_12 import Array as ArrayProtocol
+except Exception:
+    class ArrayProtocol:
+        @property
+        def shape(self) -> tuple[int, ...]:
+            raise NotImplementedError(
+                "ArrayProtocol is only meant for type annotations."
+            )
 
 from .utils import TensorShapeAssertError, check_if_dtype_matches
 from .descriptor import (
@@ -24,25 +34,6 @@ class UnionTypeUnsupportedError(TensorShapeAssertError): pass
 # define warnings
 
 class CheckDisabledWarning(RuntimeWarning): pass
-
-# try importing torch for type hints
-
-try:
-    import torch
-    TensorType = torch.Tensor
-except ImportError:
-    class TensorType:
-        @property
-        def shape(self) -> tuple[int, ...]:
-            raise NotImplementedError
-        
-        @property
-        def dtype(self) -> Any:
-            raise NotImplementedError
-        
-        @property
-        def device(self) -> Any:
-            raise NotImplementedError
 
 # define str subclasses to identify shape descriptors
 
@@ -116,7 +107,8 @@ class ShapeDescriptor(type):
 class OptionalShapeDescriptor(ShapeDescriptor):
     pass
 
-class ShapedTensor(TensorType):
+
+class ShapedTensor(ArrayProtocol):
     """
     A helper class that allows to annotate a string that describes the shape
     of the annotated object and is then considered by the
@@ -125,13 +117,13 @@ class ShapedTensor(TensorType):
     string which contains a whitespace-separated list of shape descriptions
     for each of the dimensions. More particularly these dimension descriptors
     may be
-     * an integer, to test against a fixed size,
-     * ``'*'`` to denote an arbitrary size along that dimension,
-     * ``'...'`` followed by an optional name to denote an arbitrary number of
-       dimensions (only allowed once per shape),
-     * a string that does not fulfill any of the  rules above, which is then
-       interpreted as a variable and checked for equality across all annotated 
-       arguments and return values of the function.
+    * an integer, to test against a fixed size,
+    * ``'*'`` to denote an arbitrary size along that dimension,
+    * ``'...'`` followed by an optional name to denote an arbitrary number of
+    dimensions (only allowed once per shape),
+    * a string that does not fulfill any of the  rules above, which is then
+    interpreted as a variable and checked for equality across all annotated 
+    arguments and return values of the function.
 
     Note that most punctuation is replaced with whitespaces, so for example
     it is also possible use a comma-separated list like
@@ -283,6 +275,9 @@ def check_constraints(
         skip_on_error: bool
 ):
     for i, constraint_fn in enumerate(constraints):
+
+        name = "<unknown>"
+
         try:
             if isinstance(constraint_fn, str):
                 passed = run_expression_constraint(constraint_fn, variables)
@@ -306,7 +301,7 @@ def check_constraints(
 def check_tensor_shapes(
         fn_or_cls = None,
         *,
-        constraints: list[str | Callable[[dict[str, int]], bool]] = None,
+        constraints: list[str | Callable[[dict[str, int]], bool]] | None = None,
         ints_to_variables: bool = True,
         experimental_enable_autogen_constraints: bool = False,
         check_mode: CheckMode | None = None,
@@ -342,7 +337,8 @@ def check_tensor_shapes(
     if constraints is None:
         constraints = []
 
-    assert_valid_check_mode(check_mode)
+    if check_mode is not None:
+        assert_valid_check_mode(check_mode)
     
     def _dispatch_tensor_shapes_wrapper(fn_or_cls):
         def _make_check_tensor_shapes_wrapper(fn):
@@ -356,6 +352,18 @@ def check_tensor_shapes(
 
                 _check_mode = _global_check_mode if check_mode is None else check_mode
 
+                # check if torch.compile is used
+
+                _torch_is_compiling = False
+                try:
+                    import torch
+                    if (
+                        torch.compiler.is_compiling()
+                        or torch._dynamo.external_utils.is_compiling()
+                    ):
+                        _torch_is_compiling = True
+                except ImportError:
+                    pass
 
                 # shortcut function if check mode is different to 'always'
 
@@ -365,15 +373,17 @@ def check_tensor_shapes(
                         or _check_mode == 'never'
                     ):
                     return fn(*args, **kwargs)
-                elif "torch" in sys.modules and torch.compiler.is_compiling():
+                
+                elif _torch_is_compiling:
                     # skip and warn if is inside torch compile
                     warnings.warn(CheckDisabledWarning(
-                        "TorchScript compilation is enabled. Tensor shape "
-                        "checks will be skipped inside of the compile "
-                        "context."
+                        "TorchScript compilation is enabled. Tensor "
+                        "shape checks will be skipped inside of the "
+                        "compile context."
                     ))
                     return fn(*args, **kwargs)
-                
+
+                    
                 _checked_functions.add(signature)
 
                 # bind parameters

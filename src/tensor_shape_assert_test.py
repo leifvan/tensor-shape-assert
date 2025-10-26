@@ -1,10 +1,14 @@
+# pyright: reportArgumentType=false
+# pyright: reportReturnType=false
+
 import unittest
 import warnings
 import os
 from multiprocessing import Queue
-from typing import Callable, NamedTuple
+from typing import Callable, NamedTuple, TYPE_CHECKING
 
 import array_api_compat
+
 
 from tensor_shape_assert.wrapper import (
     CheckDisabledWarning,
@@ -23,31 +27,24 @@ from tensor_shape_assert.wrapper import (
     VariableConstraintError
 )
 
-
 # read library to be used from env
 lib = os.environ["TSA_TEST_LIBRARY"]
 
-if lib == "torch":
-    import torch
-    xp = array_api_compat.array_namespace(torch.zeros(1))
+
+if lib == "torch" or TYPE_CHECKING:
+    import array_api_compat.torch as xp
 elif lib == "numpy":
-    import numpy
-    xp = array_api_compat.array_namespace(numpy.zeros(1))
-elif lib == "jax":
-    import jax
-    xp = array_api_compat.array_namespace(jax.numpy.zeros(1))
+    import array_api_compat.numpy as xp
 elif lib == "cupy":
-    import cupy
-    xp = array_api_compat.array_namespace(cupy.zeros(1))
-elif lib == "ndonnx":
-    import ndonnx
-    xp = array_api_compat.array_namespace(ndonnx.zeros(1)) 
-elif lib == "sparse":
-    import sparse
-    xp = array_api_compat.array_namespace(sparse.zeros(1))
+    import array_api_compat.cupy as xp
 elif lib == "dask":
-    import dask.array as da
-    xp = array_api_compat.array_namespace(da.zeros(1))
+    import array_api_compat.dask.array as xp
+elif lib == "jax":
+    import jax.numpy as xp
+elif lib == "ndonnx":
+    import ndonnx as xp
+elif lib == "sparse":
+    import sparse as xp
 else:
     raise ValueError(f"Unsupported library: {lib}")
 
@@ -134,7 +131,7 @@ class Test1DAnnotationsKeyword(unittest.TestCase):
     def test_wrong_output_annotation_one_item(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["b"]) -> tuple[ShapedTensor["1"], ShapedTensor["2"]]:
-            return x + 1
+            return x + 1 # type: ignore
         
         with self.assertRaises(TensorShapeAssertError):
             x = xp.zeros(8)
@@ -143,7 +140,7 @@ class Test1DAnnotationsKeyword(unittest.TestCase):
     def test_wrong_output_annotation_multiple_items(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["b"]) -> tuple[ShapedTensor["1"], ShapedTensor["2"], ShapedTensor["3"]]:
-            return (x + 1, x + 2)
+            return (x + 1, x + 2) # type: ignore
         
         with self.assertRaises(TensorShapeAssertError):
             x = xp.zeros(8)
@@ -232,7 +229,7 @@ class TestNDAnnotationsKeyword(unittest.TestCase):
     def test_variable_nd_input_shape_checked(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["b 3 2"], y: ShapedTensor["3 c 2"]) -> ShapedTensor["3 c"]:
-            return (x[:1, :1, :] + y).sum(axis=2)
+            return xp.sum(x[:1, :1, :] + y, axis=2)
         
         x = xp.zeros((17, 3, 2))
         y = xp.zeros((3, 19, 2))
@@ -1368,7 +1365,7 @@ class TestTorchCompile(unittest.TestCase):
             self.skipTest("compile only tested for torch")
 
     def test_torch_compile_disables_check_but_warns(self):
-
+        import torch
         set_global_check_mode('always')
 
         @check_tensor_shapes()
@@ -1378,7 +1375,6 @@ class TestTorchCompile(unittest.TestCase):
         # fails uncompiled
         with self.assertRaises(TensorShapeAssertError):
             test(xp.zeros((4, 3, 1)))
-
         
         compiled_test = torch.compile(test)
         
@@ -1387,7 +1383,7 @@ class TestTorchCompile(unittest.TestCase):
             compiled_test(xp.zeros((4, 3, 1)))
 
     def test_torch_compile_does_not_warn_if_check_disabled(self):
-
+        import torch
         set_global_check_mode('never')
 
         @check_tensor_shapes()
