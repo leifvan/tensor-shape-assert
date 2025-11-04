@@ -1,5 +1,8 @@
 # pyright: reportArgumentType=false
 # pyright: reportReturnType=false
+# pyright: reportAttributeAccessIssue=false
+# pyright: reportOperatorIssue=false
+
 
 import unittest
 import warnings
@@ -7,15 +10,16 @@ import os
 from multiprocessing import Queue
 from typing import Callable, NamedTuple, TYPE_CHECKING
 
-import array_api_compat
-
-
-from tensor_shape_assert.wrapper import (
-    CheckDisabledWarning,
+from tensor_shape_assert.errors import (
     MalformedDescriptorError,
     UnionTypeUnsupportedError,
+    CheckDisabledWarning,
+)
+from tensor_shape_assert.types import (
     ShapedTensor,
     ScalarTensor,
+)
+from tensor_shape_assert.wrapper import (
     check_tensor_shapes,
     get_shape_variables,
     assert_shape_here,
@@ -68,7 +72,7 @@ class Test1DAnnotationsKeyword(unittest.TestCase):
         
         with self.assertRaises(TensorShapeAssertError):
             x = xp.zeros(6)
-            test(x=x)
+            test(x=x) 
             
         with self.assertRaises(TensorShapeAssertError):
             x = xp.zeros((1, 5))
@@ -511,7 +515,7 @@ class TestClassFunctionality(unittest.TestCase):
                 x: ShapedTensor["b 3"],
                 y: ShapedTensor["b"]
             ) -> ShapedTensor["b"]:
-                return super().my_method(x=x, y=y).sum(axis=1)
+                return super().my_method(x=x, y=y).sum(axis=1) 
         
         SubTest().my_method(
             x=xp.zeros((17, 3)),
@@ -542,34 +546,34 @@ class TestTensorDescriptor(unittest.TestCase):
 class TestMisc(unittest.TestCase):
     def test_instantiating(self):
         with self.assertRaises(RuntimeError):
-            ShapedTensor()
+            ShapedTensor() # type: ignore
 
     def test_misc_annotations_ignored(self):
         @check_tensor_shapes()
-        def test(x: ShapedTensor["1"]) -> str:
+        def test1(x: ShapedTensor["1"]) -> str:
             return "hi"
         
-        test(x=xp.zeros(1))
+        test1(x=xp.zeros(1))
 
         @check_tensor_shapes()
-        def test(x: ShapedTensor["1"]) -> tuple[int, int, str]:
+        def test2(x: ShapedTensor["1"]) -> tuple[int, int, str]:
             return 1, 2, "hi"
-        
-        test(x=xp.zeros(1))
+
+        test2(x=xp.zeros(1))
 
         @check_tensor_shapes()
-        def test(x: ShapedTensor["1"]) -> list[str]:
+        def test3(x: ShapedTensor["1"]) -> list[str]:
             return ["hi", "bye"]
-        
-        test(x=xp.zeros(1))
+
+        test3(x=xp.zeros(1))
 
         @check_tensor_shapes()
-        def test(x: ShapedTensor["1"]) -> Callable[[str, str], int]:
+        def test4(x: ShapedTensor["1"]) -> Callable[[str, str], int]:
             def _test(a: str, b: str) -> int:
                 return len(a) + len(b)
             return _test
         
-        test(x=xp.zeros(1))
+        test4(x=xp.zeros(1))
 
     # def test_helpful_error_message_when_brackets_missing(self):
         
@@ -588,7 +592,7 @@ class TestMisc(unittest.TestCase):
         def test(x: ShapedTensor["a"]) -> ShapedTensor["b"]:
             return x[1:]
 
-        test(x=xp.zeros(5))
+        test(x=xp.zeros(5)) # type: ignore
         self.assertTrue(True)
             
 
@@ -642,7 +646,7 @@ class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
         
         test(x=xp.zeros((5, 6)))
 
-    def test_single_context(self):
+    def test_extra_characters(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["a b"]) -> ShapedTensor["a"]:
             a, b = get_shape_variables(" a  ] [[b    ")
@@ -662,28 +666,28 @@ class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
 
     def test_state_has_batch_dimension(self):
         @check_tensor_shapes()
-        def test(x: ShapedTensor["... 4"]):
+        def test1(x: ShapedTensor["... 4"]):
             batch = get_shape_variables("...")
             self.assertTupleEqual(batch, (1, 2, 3))
             return x
 
-        test(xp.zeros((1, 2, 3, 4)))
+        test1(xp.zeros((1, 2, 3, 4)))
 
         @check_tensor_shapes()
-        def test(x: ShapedTensor["4 ..."]):
+        def test2(x: ShapedTensor["4 ..."]):
             batch = get_shape_variables("...")
             self.assertTupleEqual(batch, (3, 2, 1))
             return x
 
-        test(xp.zeros((4, 3, 2, 1)))
+        test2(xp.zeros((4, 3, 2, 1)))
 
         @check_tensor_shapes()
-        def test(x: ShapedTensor["1 ... 4"]):
+        def test3(x: ShapedTensor["1 ... 4"]):
             batch = get_shape_variables("...")
             self.assertTupleEqual(batch, (2, 3))
             return x
 
-        test(xp.zeros((1, 2, 3, 4)))
+        test3(xp.zeros((1, 2, 3, 4)))
 
 
 class TestPositionalAndMixedArguments(unittest.TestCase):
@@ -841,7 +845,7 @@ class TestLocalShapeChecking(unittest.TestCase):
                 assert_shape_here((c,), "c")
 
             f = xp.zeros((x.shape[0] * y.shape[0], 5))
-            return f.sum(axis=1)
+            return xp.sum(f, axis=1)
         
         test(xp.zeros(6), xp.zeros(7), c=42)
         test(xp.zeros(6), xp.zeros(7), c=None)
@@ -887,33 +891,33 @@ class TestVariableConstraints(unittest.TestCase):
 
     def test_str_expression_constraints(self):
         @check_tensor_shapes(constraints=["a + b = c"])
-        def test(a: ShapedTensor["a"], b: ShapedTensor["b"]) -> ShapedTensor["c"]:
+        def test1(a: ShapedTensor["a"], b: ShapedTensor["b"]) -> ShapedTensor["c"]:
             return xp.concat([a, b], axis=0)
         
-        test(xp.zeros(3), xp.zeros(2))
-        test(xp.zeros(1), xp.zeros(4))
+        test1(xp.zeros(3), xp.zeros(2))
+        test1(xp.zeros(1), xp.zeros(4))
 
         @check_tensor_shapes(constraints=["a + b = c"])
-        def test(a: ShapedTensor["a"], b: ShapedTensor["b"]) -> ShapedTensor["c"]:
+        def test2(a: ShapedTensor["a"], b: ShapedTensor["b"]) -> ShapedTensor["c"]:
             return xp.concat([a, b, xp.zeros(1)], axis=0)
         
         with self.assertRaises(VariableConstraintError):
-            test(xp.zeros(3), xp.zeros(3))
+            test2(xp.zeros(3), xp.zeros(3))
 
     def test_autogen_constraints(self):
         @check_tensor_shapes(experimental_enable_autogen_constraints=True)
-        def test(a: ShapedTensor["a"], b: ShapedTensor["b"]) -> ShapedTensor["a+b"]:
+        def test1(a: ShapedTensor["a"], b: ShapedTensor["b"]) -> ShapedTensor["a+b"]:
             return xp.concat([a, b], axis=0)
-        
-        test(xp.zeros(3), xp.zeros(2))
-        test(xp.zeros(1), xp.zeros(4))
+
+        test1(xp.zeros(3), xp.zeros(2))
+        test1(xp.zeros(1), xp.zeros(4))
 
         @check_tensor_shapes(experimental_enable_autogen_constraints=True)
-        def test(a: ShapedTensor["a"], b: ShapedTensor["b"]) -> ShapedTensor["a+b"]:
+        def test2(a: ShapedTensor["a"], b: ShapedTensor["b"]) -> ShapedTensor["a+b"]:
             return xp.concat([a, b, xp.zeros(1)], axis=0)
         
         with self.assertRaises(VariableConstraintError):
-            test(xp.zeros(3), xp.zeros(3))
+            test2(xp.zeros(3), xp.zeros(3))
 
 class TestIntToVariables(unittest.TestCase):
     def test_int_to_variable(self):
@@ -1047,7 +1051,7 @@ class TestDtypeAnnotationTorch(unittest.TestCase):
         with self.assertRaises(MalformedDescriptorError):
             @check_tensor_shapes()
             def test(x: ShapedTensor["float n m complex 3"]) -> ShapedTensor["m"]:
-                return xp.astype(xp.median(x.sum(axis=2), axis=0)[0], xp.int32)
+                return xp.astype(xp.median(x.sum(axis=2), dim=0)[0], xp.int32)
 
     def test_scalar_dtype_annotation(self):
         @check_tensor_shapes()
@@ -1401,5 +1405,16 @@ class TestTorchCompile(unittest.TestCase):
         self.assertTrue(True)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TestNonTensorTupleAnnotations(unittest.TestCase):
+    def test_non_tensor_tuple_annotations(self):
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["n"], info: tuple[int, int]) -> ShapedTensor["n"]:
+            return x
+        
+        test(x=xp.zeros(10), info=(42, "hello"))
+        test(x=xp.zeros(5), info=(7, "world"))
+
+        with self.assertRaises(TensorShapeAssertError):
+            test(x=xp.zeros((10, 5)), info=(42, 3.14))
+
+

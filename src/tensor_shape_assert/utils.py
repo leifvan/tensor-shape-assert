@@ -1,7 +1,5 @@
 from array_api_compat import array_namespace
-
-class TensorShapeAssertError(RuntimeError):
-    pass
+from .errors import TensorShapeAssertError
 
 def optional_to_int(s: str):
     try:

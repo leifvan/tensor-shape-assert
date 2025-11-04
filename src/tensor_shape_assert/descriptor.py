@@ -1,16 +1,9 @@
-from .utils import TensorShapeAssertError, optional_to_int
-
-# define errors
-
-class DescriptorValidationError(TensorShapeAssertError):
-    pass
-
-class VariableMatchingError(TensorShapeAssertError):
-    pass
+from .utils import optional_to_int
+from .errors import DescriptorValidationError, VariableMatchingError
 
 # util functions
 
-def is_multi_dim_descriptor(s: str):
+def is_multi_dim_descriptor(s: str | int) -> bool:
     return isinstance(s, str) and s.startswith('...')
 
 # ignore all punctuation except its a required char
@@ -42,17 +35,25 @@ def clean_up_descriptor(shape_descriptor: str) -> str:
     return ' '.join(tokens)
 
 
-def split_to_descriptor_items(shape_descriptor: str):
-    
+def split_to_descriptor_items(
+        shape_descriptor: str
+) -> tuple[
+    tuple[str | int, ...],
+    tuple[str | int, ...],
+    str | int | None
+]:
+
     # split into individual strings and ints
-    descriptor_items = shape_descriptor.split(" ")
+
+    descriptor_items_list = shape_descriptor.split(" ")
     
-    if len(descriptor_items[0]) > 0:
-        descriptor_items = tuple(optional_to_int(i) for i in descriptor_items)
+    if len(descriptor_items_list[0]) > 0:
+        descriptor_items = tuple(optional_to_int(i) for i in descriptor_items_list)
     else:
         descriptor_items = tuple()
     
     # there should be at most one multi dim descriptor
+
     mdd_idxs = [i for i, s in enumerate(descriptor_items) if is_multi_dim_descriptor(s)]
     
     if len(mdd_idxs) > 1:
@@ -63,6 +64,7 @@ def split_to_descriptor_items(shape_descriptor: str):
         )
 
     # split if there is a multi dim descriptor
+
     if len(mdd_idxs) == 1:
         mdd_idx = mdd_idxs[0]
         mdd = descriptor_items[mdd_idx]
@@ -93,7 +95,7 @@ def get_expected_shape_item(descriptor_item, shape_item, prev_var):
         # if variable is already set, values must match
         return prev_var, prev_var
 
-def descriptor_items_to_string(descriptor_items: tuple[str | int]) -> str:
+def descriptor_items_to_string(descriptor_items: tuple[str | int, ...]) -> str:
     return str(tuple(descriptor_items)).replace("'", "")
 
 def descriptor_to_variables(shape_descriptor, shape, variables=None):
