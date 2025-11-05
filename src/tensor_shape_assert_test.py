@@ -4,6 +4,7 @@
 # pyright: reportOperatorIssue=false
 # mypy: ignore-errors
 
+import sys
 import unittest
 import warnings
 import os
@@ -1359,6 +1360,7 @@ class TestPicklingCompatibility(unittest.TestCase):
         queue.put(PicklingCompatibilityMyNamedTupleParentheses(x=xp.zeros(5)))
         queue.get(timeout=1)
 
+@unittest.skipIf(sys.platform.startswith("win"), "Skipping torch.compile tests on Windows")
 class TestTorchCompile(unittest.TestCase):
     def tearDown(self):
         set_global_check_mode('always')
