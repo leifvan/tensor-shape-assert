@@ -16,10 +16,10 @@ from tensor_shape_assert.utils import TensorShapeAssertError
 lib = os.environ["TSA_TEST_LIBRARY"]
 
 
-if lib == "torch":
-    import array_api_compat.torch as xp
-elif lib == "numpy" or TYPE_CHECKING:
+if lib == "numpy" or TYPE_CHECKING:
     import array_api_compat.numpy as xp
+elif lib == "torch":
+    import array_api_compat.torch as xp
 elif lib == "cupy":
     import array_api_compat.cupy as xp
 elif lib == "dask":

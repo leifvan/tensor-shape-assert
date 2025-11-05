@@ -1,6 +1,6 @@
 import types
 import inspect
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, get_args
 import warnings
 
 from .utils import TensorShapeAssertError, check_if_dtype_matches
@@ -115,7 +115,7 @@ _global_check_mode: CheckMode = "always"
 _checked_functions: set = set()
 
 def assert_valid_check_mode(mode: CheckMode):
-    if mode is not None and mode not in CheckMode.__args__:
+    if mode is not None and mode not in get_args(CheckMode):
         raise TensorShapeAssertError(f"Invalid check mode: '{mode}'")
 
 def set_global_check_mode(mode: CheckMode):

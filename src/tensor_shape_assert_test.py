@@ -2,7 +2,7 @@
 # pyright: reportReturnType=false
 # pyright: reportAttributeAccessIssue=false
 # pyright: reportOperatorIssue=false
-
+# mypy: ignore-errors
 
 import unittest
 import warnings
@@ -1310,17 +1310,17 @@ class TestScalarValuesAlias(unittest.TestCase):
 
     def test_scalar_outputs(self):
         @check_tensor_shapes()
-        def test(x: ShapedTensor["n"]) -> ScalarTensor:
+        def test1(x: ShapedTensor["n"]) -> ScalarTensor:
             return x.sum()
         
-        test(xp.zeros(5))
+        test1(xp.zeros(5))
 
         with self.assertRaises(TensorShapeAssertError):
             @check_tensor_shapes()
-            def test(x: ShapedTensor["n"]) -> ShapedTensor["1"]:
+            def test2(x: ShapedTensor["n"]) -> ShapedTensor["1"]:
                 return x.sum()
             
-            test(xp.zeros(5))
+            test2(xp.zeros(5))
 
 @check_tensor_shapes
 class PicklingCompatibilityMyClassNoParentheses:

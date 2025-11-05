@@ -124,8 +124,6 @@ class ShapedTensor(ArrayProtocol):
 
         return ShapeDescriptor(key)
 
-# aliases
-ScalarTensor: TypeAlias = ShapedTensor[""] 
 
 if TYPE_CHECKING:
     T = TypeVar('T')
@@ -147,7 +145,7 @@ if TYPE_CHECKING:
             type_params=(S,)
         )
     except ImportError:
-        ShapedTorchLiteral = ShapedTensor
+        pass
 
     # numpy
 
@@ -159,9 +157,12 @@ if TYPE_CHECKING:
             type_params=(S,)
         )
     except ImportError:
-        ShapedNumpyLiteral = ShapedTensor
+        pass
 
 else:
     ShapedLiteral = ShapedTensor
     ShapedTorchLiteral = ShapedTensor
     ShapedNumpyLiteral = ShapedTensor
+
+    # aliases
+    ScalarTensor: TypeAlias = ShapedTensor[""] 

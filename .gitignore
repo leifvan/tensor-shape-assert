@@ -4,3 +4,4 @@ build
 **/.nox
 **/.pytest_cache
 .vscode
+**/.mypy_cache
