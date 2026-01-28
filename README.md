@@ -7,8 +7,44 @@ A minimal utility library that
 * supports any array class that exposes a ``shape`` property,
 * and a lot more!
 
+## Installation
+
+Currently, the package can only be installed directly from the repository with
+```bash
+pip install git+https://github.com/leifvan/tensor-shape-assert
+```
+
 ## Usage
+
 Decorate functions with ``@check_tensor_shapes()`` and any parameter with a type hint of type ``ShapedTensor[<desc>]`` will be dynamically checked for the correct shape. A shape descriptor is a *string* of space-separated length descriptions for each dimension. The return value can also be annotated in the same way.
+
+### Simple example
+
+```python
+import torch
+from .tensor_shape_assert import check_tensor_shapes, ShapedTensor
+
+@check_tensor_shapes()
+def my_simple_func(
+        x: ShapedTensor["a b 3"],
+        y: ShapedTensor["b 2"]
+) -> ShapedTensor["a"]:
+
+    z = x[:, :, :2] + y[None]
+    return (z[:, :, 0] * z[:, :, 1]).sum(dim=1)
+```
+
+Calling it like this
+```python
+my_simple_func(torch.zeros(5, 4, 3), y=torch.zeros(4, 2)) # works
+```
+passes the test, because ``a=5 and b=4`` matches for both input and output annotations.
+
+For
+```python
+my_simple_func(torch.zeros(5, 4, 3), y=torch.zeros(4, 3)) # fails
+```
+the test fails, because `y` is expected to have length 2 in the second dimension.
 
 ### Integers
 
@@ -44,51 +80,11 @@ There are convenience functions that access the current states of the shape vari
 
 You can even go one step further and do a check tensors inside the wrapped function directly with ``assert_shape_here(x, <desc>)``, which will run a check on the object or shape ``x`` given the descriptor and add previously unseen variables in the descriptor to the state inside the wrapped function. This way you can check the output of the function against tensor shapes that only appear in the body of the function.
 
-## Installation
-
-Currently, the package can only be installed directly from the repository with
-```bash
-pip install git+https://github.com/leifvan/tensor-shape-assert
-```
-
 ## Compatibility
 
 While the examples below are using PyTorch, *tensor-shape-assert* requires very minimal functionality and is compatible with any array class that has a ``shape`` method, which includes popular frameworks such as NumPy, TensorFlow, Jax and more generally frameworks that conform to the [Python array API standard](https://data-apis.org/array-api/latest/).
 
-## Examples
-
-Here are two examples that demonstrate how the annotation works.
-
-### Simple example
-
-```python
-import torch
-from .tensor_shape_assert import check_tensor_shapes, ShapedTensor
-
-@check_tensor_shapes()
-def my_simple_func(
-        x: ShapedTensor["a b 3"],
-        y: ShapedTensor["b 2"]
-) -> ShapedTensor["a"]:
-
-    z = x[:, :, :2] + y[None]
-    return (z[:, :, 0] * z[:, :, 1]).sum(dim=1)
-```
-
-Calling it like this
-```python
-my_simple_func(torch.zeros(5, 4, 3), y=torch.zeros(4, 2)) # works
-```
-passes the test, because ``a=5 and b=4`` matches for both input and output annotations.
-
-For
-```python
-my_simple_func(torch.zeros(5, 4, 3), y=torch.zeros(4, 3)) # fails
-```
-the test fails, because `y` is expected to have length 2 in the second dimension.
-
----
-### Complex example
+## More Examples
 
 The complex example additionally contains tuple and optional annotations.
 ```python
@@ -186,6 +182,25 @@ def my_func(x: ShapedTensor["n k"], k: int):
 my_func(torch.zeros(10, 2), k=2) # works
 my_func(torch.zeros(10, 2), k=3) # works
 ```
+---
+### Type safety (new in version 0.3)
+
+If you are using static type checkers like MyPy, you can use the more verbose but type safe literal syntax. For this, you are also required to specify the array type. You can either do this manually with ``ShapedLiteral``, or use the predefined aliases ``ShapedTorchLiteral``, ``ShapedNumpyLiteral``. The example will show both options for PyTorch.
+
+```python
+from typing import Literal as L
+
+@check_tensor_shapes()
+def my_simple_func(
+        x: ShapedTorchLiteral[L["a b 3"]],
+        y: ShapedTorchLiteral[L["b 2"]]
+) -> ShapedLiteral[torch.Tensor, L["a"]]:
+
+    z = x[:, :, :2] + y[None]
+    return (z[:, :, 0] * z[:, :, 1]).sum(dim=1)
+```
+
+Another benefit from using the typed version is that tooltips in VS Code are more helpful, as they can pass trough the ``Literal`` string. This way you can check the annotated shape without having to open the file with the annotated code.
 
 ## Known bugs
 * [ ] ``get_shape_variables`` does not work if checks are disabled. This should be possible but give a performance warning, recommending not to use this feature in performance-critical applications.
@@ -208,7 +223,7 @@ reraise
   * [x] donnx
   * [x] sparse
   * ~~[ ] cupy~~ (we leave this out for now because it requires CUDA)
-* [ ] check compatibility with static type checkers
+* [x] check compatibility with static type checkers
 * [ ] rewrite README to give a cleaner overview over the features
 * [ ] support union of shape descriptors (but this might break the current simplicity)
 * [ ] benchmark speed to understand impact in tight loops
@@ -216,11 +231,11 @@ reraise
 * ~~[ ] device annotation~~ (device definition not standardized in Python array API 2024.12, see [this section of the specifications](https://data-apis.org/array-api/2024.12/design_topics/device_support.html#device-support))
 * [ ] add variable names for dtype
 * [ ] add more helpful message when parameter / output is not the expected type
-* [ ] (maybe instead of the one before) catch and reraise all exceptions inside
+* [x] (maybe instead of the one before) catch and reraise all exceptions inside
  wrapper and reraise with additional info about exception location
-* [ ] improve hints for static type checking (currently it assumes either torch
+* [x] improve hints for static type checking (currently it assumes either torch
  or the object just having a .shape parameter)
-* [ ] come up with a way to allow union of shape descriptors
 * [ ] make get_shape_variables work in check modes "never" and "once" without
  performance overhead
 * [ ] work on performance overhead in general
+

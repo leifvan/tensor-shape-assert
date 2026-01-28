@@ -41,4 +41,3 @@ def typecheck(session):
     session.install("numpy", "torch")
     session.install("mypy")
     session.run("mypy", "src")
-

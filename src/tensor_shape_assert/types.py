@@ -118,6 +118,15 @@ class ShapedTensor(ArrayProtocol):
         )
     
     def __class_getitem__(cls, key):
+        # check if it is a tuple annotation
+        if isinstance(key, tuple):
+            if len(key) != 2:
+                raise TypeError(
+                    "ShapedTensor can only be parameterized with a single "
+                    "shape descriptor string or a tuple of (type, shape)."
+                )
+            key = key[1]
+
         # check if it is a literal
         if get_origin(key) is Literal:
             key = " ".join(get_args(key))
@@ -138,7 +147,7 @@ if TYPE_CHECKING:
     # torch
 
     try:
-        from array_api_compat import torch
+        import torch
         ShapedTorchLiteral = TypeAliasType(
             'ShapedTorchLiteral',
             ShapedLiteral[torch.Tensor, S],
@@ -150,7 +159,7 @@ if TYPE_CHECKING:
     # numpy
 
     try:
-        from array_api_compat import numpy
+        import numpy
         ShapedNumpyLiteral = TypeAliasType(
             'ShapedNumpyLiteral',
             ShapedLiteral[numpy.ndarray, S],

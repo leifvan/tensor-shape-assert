@@ -2,6 +2,7 @@
 # pyright: reportReturnType=false
 # pyright: reportAttributeAccessIssue=false
 # pyright: reportOperatorIssue=false
+# pyright: reportPossiblyUnboundVariable=false
 # mypy: ignore-errors
 
 import sys
@@ -31,27 +32,10 @@ from tensor_shape_assert.wrapper import (
     NoVariableContextExistsError,
     VariableConstraintError
 )
+from test_utils import get_library_by_name
 
 # read library to be used from env
-lib = os.environ["TSA_TEST_LIBRARY"]
-
-
-if lib == "torch" or TYPE_CHECKING:
-    import array_api_compat.torch as xp
-elif lib == "numpy":
-    import array_api_compat.numpy as xp
-elif lib == "cupy":
-    import array_api_compat.cupy as xp
-elif lib == "dask":
-    import array_api_compat.dask.array as xp
-elif lib == "jax":
-    import jax.numpy as xp
-elif lib == "ndonnx":
-    import ndonnx as xp
-elif lib == "sparse":
-    import sparse as xp
-else:
-    raise ValueError(f"Unsupported library: {lib}")
+xp = get_library_by_name(os.environ["TSA_TEST_LIBRARY"])
 
 
 def library_has_types(type_names: list[str]) -> bool:
