@@ -1,6 +1,4 @@
 import nox
-import sys
-# v = sys.version.split(" ")[0]
 
 # Reuse environments to speed things up locally (optional)
 nox.options.reuse_venv = "yes"

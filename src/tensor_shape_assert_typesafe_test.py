@@ -22,7 +22,6 @@ class TestAnnotationWithLiterals(unittest.TestCase):
         if lib != "torch":
             self.skipTest("Skipping torch-specific test")
 
-        from typing_extensions import Literal as L
         import torch
         
         @check_tensor_shapes()
@@ -39,7 +38,6 @@ class TestAnnotationWithLiterals(unittest.TestCase):
         if lib != "torch":
             self.skipTest("Skipping torch-specific test")
 
-        from typing_extensions import Literal as L
         import torch
         
         @check_tensor_shapes()
@@ -56,7 +54,6 @@ class TestAnnotationWithLiterals(unittest.TestCase):
         if lib != "numpy":
             self.skipTest("Skipping numpy-specific test")
 
-        from typing_extensions import Literal as L
         import numpy as np
         
         @check_tensor_shapes()
@@ -74,7 +71,6 @@ class TestAnnotationWithLiterals(unittest.TestCase):
         if lib != "numpy":
             self.skipTest("Skipping numpy-specific test")
 
-        from typing_extensions import Literal as L
         import numpy as np
         
         @check_tensor_shapes()

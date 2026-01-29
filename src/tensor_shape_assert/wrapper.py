@@ -1,7 +1,8 @@
 import types
 import inspect
-from typing import Any, Callable, Literal, get_args
+from typing import Any, Callable, Literal, get_args, NamedTuple
 import warnings
+from contextlib import contextmanager
 
 from .utils import TensorShapeAssertError, check_if_dtype_matches
 from .descriptor import (
@@ -10,7 +11,7 @@ from .descriptor import (
     clean_up_descriptor
 )
 
-from .types import ShapeDescriptor, OptionalShapeDescriptor
+from .types import ShapeDescriptor, OptionalShapeDescriptor, VariablesType
 from .errors import (
     AnnotationMatchingError,
     DtypeConstraintError,
@@ -18,6 +19,14 @@ from .errors import (
     CheckDisabledWarning,
     NoVariableContextExistsError
 )
+
+from .trace import (
+    add_function_trace,
+    add_assignment_trace,
+    finalize_function_trace,
+)
+
+
 
 def unroll_iterable_annotation(annotation, obj):
     if isinstance(annotation, (ShapeDescriptor, OptionalShapeDescriptor)):
@@ -76,7 +85,7 @@ def unroll_iterable_annotation(annotation, obj):
                 ))
 
 
-def check_iterable(annotation, obj, variables):
+def check_iterable(annotation: Any, obj: Any, variables: VariablesType, name: str) -> VariablesType:
     for descriptor, obj in unroll_iterable_annotation(annotation, obj):
 
         # skip if its optional and obj is None
@@ -103,16 +112,25 @@ def check_iterable(annotation, obj, variables):
             raise NotImplementedError(
                 "Device checks are not implemented yet."
             )
+
+        add_assignment_trace(
+            name=name,
+            annotation=str(descriptor),
+            shape=tuple(obj.shape),
+            assignments=variables
+        )
     
     return variables
 
 # define a module level stack for currently declared variables
-_current_variables_stack = []
+_current_variables_stack: list[VariablesType] = []
 
 # module level check mode
 CheckMode = Literal["always", "once", "never"]
 _global_check_mode: CheckMode = "always"
 _checked_functions: set = set()
+
+
 
 def assert_valid_check_mode(mode: CheckMode):
     if mode is not None and mode not in get_args(CheckMode):
@@ -134,21 +152,32 @@ def set_global_check_mode(mode: CheckMode):
     _global_check_mode = mode
 
 
+
+
+
+# def print_if_trace(msg: str, has_vars: bool = False):
+#     if _trace_mode == "enabled":
+#         # infer stack size by looking at current variables stack
+#         stack_size = len(_current_variables_stack)
+#         if not has_vars:
+#             stack_size += 1
+#         print(">", " " * 4 * stack_size, msg)
+
 def run_expression_constraint(
         expression: str,
-        variables: dict[str, int]
+        variables: dict[str, tuple[int] | int]
 ) -> bool:
     if "=" not in expression:
         assert False
     if "==" not in expression:
         expression = expression.replace("=", "==")
 
-    exec_globals = {'__builtins__': {}, **variables}
+    exec_globals: dict[str, Any] = {'__builtins__': {}, **variables}
     return eval(expression, exec_globals)
 
 def check_constraints(
-        constraints: list[Callable[[dict[str, int]], bool] | str],
-        variables: dict[str, int],
+        constraints: list[Callable[[VariablesType], bool] | str],
+        variables: VariablesType,
         skip_on_error: bool
 ):
     for i, constraint_fn in enumerate(constraints):
@@ -178,7 +207,7 @@ def check_constraints(
 def check_tensor_shapes(
         fn_or_cls = None,
         *,
-        constraints: list[str | Callable[[dict[str, int]], bool]] | None = None,
+        constraints: list[str | Callable[[VariablesType], bool]] | None = None,
         ints_to_variables: bool = True,
         experimental_enable_autogen_constraints: bool = False,
         check_mode: CheckMode | None = None,
@@ -225,6 +254,8 @@ def check_tensor_shapes(
 
             def _check_tensor_shapes_wrapper(*args, **kwargs):
 
+                add_function_trace(fn)
+
                 # get check mode
 
                 _check_mode = _global_check_mode if check_mode is None else check_mode
@@ -260,7 +291,6 @@ def check_tensor_shapes(
                     ))
                     return fn(*args, **kwargs)
 
-                    
                 _checked_functions.add(signature)
 
                 # bind parameters
@@ -272,17 +302,30 @@ def check_tensor_shapes(
                 # check input type hints
 
                 if ints_to_variables:
-                    variables = {k: v for k, v in bound_arguments.items() if type(v) is int}
+                    variables: VariablesType = {
+                        k: v for k, v in bound_arguments.items()
+                        if type(v) is int
+                    }
+
+                    if len(variables) > 0:
+                        add_assignment_trace(
+                            name="<int variables>",
+                            annotation="int",
+                            shape=(),
+                            assignments=variables
+                        )
                 else:
-                    variables = dict()
+                    variables: VariablesType = dict()
 
                 for key, parameter in signature.parameters.items():
                     try:
                         variables = check_iterable(
                             annotation=parameter.annotation,
                             obj=bound_arguments[key],
-                            variables=variables
+                            variables=variables,
+                            name=key
                         )
+                        
                     except TensorShapeAssertError as e:
                         # wrap exception to provide location info (input)
                         raise TensorShapeAssertError(
@@ -318,10 +361,12 @@ def check_tensor_shapes(
                 # check outputs
 
                 try:
-                    check_iterable(
+                    # TODO check if its wrong that we update variables here again
+                    variables = check_iterable(
                         annotation=signature.return_annotation, 
                         obj=return_value,
-                        variables=variables
+                        variables=variables,
+                        name="<return>"
                     )
                 except TensorShapeAssertError as e:
                     # wrap exception to provide location info (output)
@@ -342,9 +387,10 @@ def check_tensor_shapes(
                             temp_variables[temp_replace_name] = temp_replace_val
                             temp_constraint = f"{temp_replace_name} == {k}"
                             check_constraints([temp_constraint], temp_variables, skip_on_error=False)
-
+                    
                     # remove vars from stack
                     _current_variables_stack.pop()
+                    finalize_function_trace()
                 
                 # return
 
@@ -389,7 +435,7 @@ def check_if_context_is_available():
             "here."
         )
 
-def get_shape_variables(names: str) -> tuple[int, ...]:
+def get_shape_variables(names: str) -> tuple[tuple[int] | int | None, ...]:
     """
     Returns the inferred values of the tensor shape variables of the innermost
     function wrapped with check_tensor_shapes.
@@ -402,7 +448,7 @@ def get_shape_variables(names: str) -> tuple[int, ...]:
     
     Returns
     -------
-    tuple[int]
+    tuple[int | tuple[int] | None, ...]
         A tuple of integers representing the inferred values of the variables
         given in ``names``.
     """
@@ -415,10 +461,10 @@ def get_shape_variables(names: str) -> tuple[int, ...]:
     else:
         var_names = (*front, mdd, *back)
 
-    values = tuple(_current_variables_stack[-1].get(name, None) for name in var_names)
-    if len(values) == 1:
-        return values[0]
-    return values
+    return tuple(
+        _current_variables_stack[-1].get(str(name), None)
+        for name in var_names
+    )
 
 def assert_shape_here(obj_or_shape: Any, descriptor: str) -> None:
     """

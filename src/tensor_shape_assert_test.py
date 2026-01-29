@@ -12,21 +12,25 @@ import os
 from multiprocessing import Queue
 from typing import Callable, NamedTuple, TYPE_CHECKING
 
+# import these from public module
+from tensor_shape_assert import (
+    check_tensor_shapes,
+    get_shape_variables,
+    assert_shape_here,
+    set_global_check_mode,
+    ShapedTensor,
+    ScalarTensor,
+    start_trace_recording,
+    stop_trace_recording,
+    trace_records_to_string
+)
+
 from tensor_shape_assert.errors import (
     MalformedDescriptorError,
     UnionTypeUnsupportedError,
     CheckDisabledWarning,
 )
-from tensor_shape_assert.types import (
-    ShapedTensor,
-    ScalarTensor,
-)
-from tensor_shape_assert.wrapper import (
-    check_tensor_shapes,
-    get_shape_variables,
-    assert_shape_here,
-    set_global_check_mode,
-)
+
 from tensor_shape_assert.utils import TensorShapeAssertError
 from tensor_shape_assert.wrapper import (
     NoVariableContextExistsError,
@@ -625,7 +629,7 @@ class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
     def test_unknown_variable_is_none(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["a b"]) -> ShapedTensor["a"]:
-            c = get_shape_variables("c")
+            c = get_shape_variables("c")[0]
             self.assertIsNone(c)
             return x.sum(axis=1)
         
@@ -643,7 +647,7 @@ class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
     def test_state_does_not_collect_ints(self):
         @check_tensor_shapes()
         def test(x: ShapedTensor["a 2"]):
-            k = get_shape_variables("2")
+            k = get_shape_variables("2")[0]
             self.assertIsNone(k)
             return x
 
@@ -652,7 +656,7 @@ class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
     def test_state_has_batch_dimension(self):
         @check_tensor_shapes()
         def test1(x: ShapedTensor["... 4"]):
-            batch = get_shape_variables("...")
+            batch = get_shape_variables("...")[0]
             self.assertTupleEqual(batch, (1, 2, 3))
             return x
 
@@ -660,7 +664,7 @@ class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
 
         @check_tensor_shapes()
         def test2(x: ShapedTensor["4 ..."]):
-            batch = get_shape_variables("...")
+            batch = get_shape_variables("...")[0]
             self.assertTupleEqual(batch, (3, 2, 1))
             return x
 
@@ -668,7 +672,7 @@ class TestGetVariableValuesFromCurrentContext(unittest.TestCase):
 
         @check_tensor_shapes()
         def test3(x: ShapedTensor["1 ... 4"]):
-            batch = get_shape_variables("...")
+            batch = get_shape_variables("...")[0]
             self.assertTupleEqual(batch, (2, 3))
             return x
 
@@ -1404,3 +1408,41 @@ class TestNonTensorTupleAnnotations(unittest.TestCase):
             test(x=xp.zeros((10, 5)), info=(42, 3.14))
 
 
+class TestTraceLogging(unittest.TestCase):
+    def test_trace_logging_prints_to_stdout(self):
+
+        @check_tensor_shapes()
+        def f(x: ShapedTensor["a b n"]) -> ShapedTensor["a n"]:
+            return xp.sum(x, axis=1)
+        
+        @check_tensor_shapes()
+        def g(x: ShapedTensor["a b 2"]) -> ShapedTensor["a"]:
+            y = f(x)
+            return y[:, 0] * y[:, 1]
+
+        @check_tensor_shapes()
+        def h(x: ShapedTensor["a b n"], n: int = 2) -> tuple[ScalarTensor, ScalarTensor]:
+            y = g(x)
+            return xp.mean(y), xp.var(y)
+
+        start_trace_recording()
+        h(xp.zeros((3, 4, 2)))
+        records = stop_trace_recording()
+        record_str = trace_records_to_string(records)
+
+        self.assertIn("h (defined at", record_str)
+        self.assertIn(", stack index: 0, call index: 0", record_str)
+        self.assertIn("|   <int variables> : (int) -> shape () => {'n': 2}", record_str)
+        self.assertIn("|   x : (a b n) -> shape (3, 4, 2) => {'n': 2, 'a': 3, 'b': 4}", record_str)
+        self.assertIn("|   ", record_str)
+        self.assertIn("|   g (defined at", record_str)
+        self.assertIn(", stack index: 1, call index: 2", record_str)
+        self.assertIn("|   |   x : (a b 2) -> shape (3, 4, 2) => {'a': 3, 'b': 4}", record_str)
+        self.assertIn("|   |   ", record_str)
+        self.assertIn("|   |   f (defined at", record_str)
+        self.assertIn(", stack index: 2, call index: 3", record_str)
+        self.assertIn("|   |   |   x : (a b n) -> shape (3, 4, 2) => {'a': 3, 'b': 4, 'n': 2}", record_str)
+        self.assertIn("|   |   |   <return> : (a n) -> shape (3, 2) => {'a': 3, 'b': 4, 'n': 2}", record_str)
+        self.assertIn("|   |   <return> : (a) -> shape (3,) => {'a': 3, 'b': 4}", record_str)
+        self.assertIn("|   <return> : () -> shape () => {'n': 2, 'a': 3, 'b': 4}", record_str)
+        self.assertIn("|   <return> : () -> shape () => {'n': 2, 'a': 3, 'b': 4}", record_str)
