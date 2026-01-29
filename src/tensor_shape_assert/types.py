@@ -19,6 +19,8 @@ from .descriptor import (
     clean_up_descriptor
 )
 
+VariablesType = dict[str, tuple[int] | int]
+
 # define str subclasses to identify shape descriptors
 
 _NAME_TO_KIND = {
@@ -144,6 +146,13 @@ if TYPE_CHECKING:
         type_params=(T, S)
     )
 
+    # TODO: this can be made more useful by using a library-specific scalar type
+    ScalarTensor = TypeAliasType(
+        'ScalarTensor',
+        ShapedLiteral[float, Literal[""]],
+        type_params=()
+    )
+
     # torch
 
     try:
@@ -167,6 +176,7 @@ if TYPE_CHECKING:
         )
     except ImportError:
         pass
+    
 
 else:
     ShapedLiteral = ShapedTensor
