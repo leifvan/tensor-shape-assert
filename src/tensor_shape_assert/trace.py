@@ -43,11 +43,17 @@ def add_function_trace(fn):
     if not _trace_enabled:
         return
 
-    fn_code = inspect.getsourcefile(fn), inspect.getsourcelines(fn)[1]
+    try:
+        source_file = inspect.getsourcefile(fn)
+        source_line = inspect.getsourcelines(fn)[1]
+    except OSError:
+        source_file = f"{fn.__module__}.{fn.__qualname__}"
+        source_line = -1
+
     trace_record = TracedFunctionCall(
         function_name=fn.__name__,
-        file=fn_code[0],
-        line=fn_code[1],
+        file=source_file,
+        line=source_line,
         stack_index=len(_trace_stack),
         call_index=len(_trace_records)
     )
@@ -99,24 +105,27 @@ def finalize_function_trace():
 def start_trace_recording():
     global _trace_enabled
     _trace_enabled = True
+    _trace_records.clear()
+    _trace_stack.clear()
 
 def stop_trace_recording() -> list[TraceRecord]:
     global _trace_enabled
     _trace_enabled = False
     records = _trace_records.copy()
     _trace_records.clear()
+    _trace_stack.clear()
     return records
 
 def trace_records_to_string(records: list[TraceRecord]) -> str:
     lines = []
-    cur_stack_size = -1
+    mentioned_calls = set()
+
     for record in records:
         indentation = "|   " * record.function.stack_index
 
-        if record.function.stack_index > cur_stack_size:
+        if record.function not in mentioned_calls:
             lines.append(f"{indentation}\n{indentation}{record.function}")
-        cur_stack_size = record.function.stack_index
+            mentioned_calls.add(record.function)
                 
         lines.append(f"{indentation}|   {record.assignment}")
-        
     return "\n".join(lines)

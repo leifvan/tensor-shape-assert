@@ -1409,7 +1409,7 @@ class TestNonTensorTupleAnnotations(unittest.TestCase):
 
 
 class TestTraceLogging(unittest.TestCase):
-    def test_trace_logging_prints_to_stdout(self):
+    def test_trace_logging_example(self):
 
         @check_tensor_shapes()
         def f(x: ShapedTensor["a b n"]) -> ShapedTensor["a n"]:
@@ -1446,3 +1446,35 @@ class TestTraceLogging(unittest.TestCase):
         self.assertIn("|   |   <return> : (a) -> shape (3,) => {'a': 3, 'b': 4}", record_str)
         self.assertIn("|   <return> : () -> shape () => {'n': 2, 'a': 3, 'b': 4}", record_str)
         self.assertIn("|   <return> : () -> shape () => {'n': 2, 'a': 3, 'b': 4}", record_str)
+
+    def test_tracing_namedtuples(self):
+        @check_tensor_shapes()
+        class MyInputTuple(NamedTuple):
+            p: ShapedTensor["n m"]
+            q: ShapedTensor["m 1"]
+
+        @check_tensor_shapes()
+        class MyOutputTuple(NamedTuple):
+            result: ShapedTensor["n"]
+
+        @check_tensor_shapes()
+        def test(x: MyInputTuple) -> MyOutputTuple:
+            return MyOutputTuple(result=(x.p @ x.q)[:, 0])
+
+        start_trace_recording()
+        test(MyInputTuple(
+            p=xp.zeros((5, 4)),
+            q=xp.zeros((4, 1))
+        ))
+        records = stop_trace_recording()
+        record_str = trace_records_to_string(records)
+
+        self.assertIn(
+            "__new__ (defined at namedtuple_MyInputTuple.MyInputTuple.__new__:-1), stack index: 0, call index: 0\n"
+            "|   p : (n m) -> shape (5, 4) => {'n': 5, 'm': 4}\n"
+            "|   q : (m 1) -> shape (4, 1) => {'n': 5, 'm': 4}\n"
+            "|   \n"
+            "|   __new__ (defined at namedtuple_MyOutputTuple.MyOutputTuple.__new__:-1), stack index: 1, call index: 2\n"
+            "|   |   result : (n) -> shape (5,) => {'n': 5}",
+            record_str
+        )
