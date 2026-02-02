@@ -1432,7 +1432,7 @@ class TestTraceLogging(unittest.TestCase):
 
         self.assertIn("h (defined at", record_str)
         self.assertIn(", stack index: 0, call index: 0", record_str)
-        self.assertIn("|   <int variables> : (int) -> shape () => {'n': 2}", record_str)
+        self.assertIn("|   <int variables> : () -> shape () => {'n': 2}", record_str)
         self.assertIn("|   x : (a b n) -> shape (3, 4, 2) => {'n': 2, 'a': 3, 'b': 4}", record_str)
         self.assertIn("|   ", record_str)
         self.assertIn("|   g (defined at", record_str)
@@ -1489,7 +1489,7 @@ class TestKeepingOuterVariables(unittest.TestCase):
 
         @check_tensor_shapes()
         def outer(x: ShapedTensor["a b 2"]):
-            return inner(x[0])
+            return inner(x[0, ...])
 
         # this works, because a == b
         outer(xp.zeros((3, 3, 2)))
@@ -1507,7 +1507,7 @@ class TestKeepingOuterVariables(unittest.TestCase):
 
         @check_tensor_shapes()
         def outer(x: ShapedTensor["a b 2"]):
-            return inner(x[0])
+            return inner(x[0, ...])
 
         # this works, because a == b
         outer(xp.zeros((3, 3, 2)))
@@ -1526,7 +1526,7 @@ class TestKeepingOuterVariables(unittest.TestCase):
 
         @check_tensor_shapes()
         def outer(x: ShapedTensor["a b 2"]):
-            return inner(x[:, 0])
+            return inner(x[:, 0, :])
 
         outer(xp.zeros((3, 4, 2)))
 
@@ -1540,7 +1540,7 @@ class TestKeepingOuterVariables(unittest.TestCase):
 
         @check_tensor_shapes()
         def outer(x: ShapedTensor["a b 2"]):
-            return inner(x[:, 0])
+            return inner(x[:, 0, :])
 
         outer(xp.zeros((3, 4, 2)))
 
@@ -1555,12 +1555,12 @@ class TestKeepingOuterVariables(unittest.TestCase):
         @check_tensor_shapes()
         def middle(y: ShapedTensor["b 2"]):
             self.assertIsNone(get_shape_variables("a")[0])
-            return inner(y[0])
+            return inner(y[0, :])
 
         @check_tensor_shapes()
         def outer(x: ShapedTensor["a b 2"]):
-            return middle(x[0])
-
+            return middle(x[0, ...])
+        
         outer(xp.zeros((3, 4, 2)))
 
     def test_namedtuple_as_return_type_if_enabled(self):
@@ -1572,8 +1572,8 @@ class TestKeepingOuterVariables(unittest.TestCase):
         @check_tensor_shapes()
         def test(x: ShapedTensor["a b 2"]) -> MyTupleEnabled:
             return MyTupleEnabled(
-                p=x[0],
-                q=x[:, 0]
+                p=x[0, ...],
+                q=x[:, 0, :]
             )
 
         # works, because a == b
@@ -1593,8 +1593,8 @@ class TestKeepingOuterVariables(unittest.TestCase):
         @check_tensor_shapes()
         def test(x: ShapedTensor["a b 2"]) -> MyTupleDisabled:
             return MyTupleDisabled(
-                p=x[0],
-                q=x[:, 0]
+                p=x[0, ...],
+                q=x[:, 0, :]
             )
 
         # works, because a == b
