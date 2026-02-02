@@ -1432,7 +1432,7 @@ class TestTraceLogging(unittest.TestCase):
 
         self.assertIn("h (defined at", record_str)
         self.assertIn(", stack index: 0, call index: 0", record_str)
-        self.assertIn("|   <int variables> : (int) -> shape () => {'n': 2}", record_str)
+        self.assertIn("|   <int variables> : () -> shape () => {'n': 2}", record_str)
         self.assertIn("|   x : (a b n) -> shape (3, 4, 2) => {'n': 2, 'a': 3, 'b': 4}", record_str)
         self.assertIn("|   ", record_str)
         self.assertIn("|   g (defined at", record_str)
@@ -1478,3 +1478,130 @@ class TestTraceLogging(unittest.TestCase):
             "|   |   result : (n) -> shape (5,) => {'n': 5}",
             record_str
         )
+
+
+class TestKeepingOuterVariables(unittest.TestCase):
+    def test_inner_function_sees_collision_if_enabled(self):
+
+        @check_tensor_shapes(include_outer_variables=True)
+        def inner(y: ShapedTensor["a 2"]):
+            return y
+
+        @check_tensor_shapes()
+        def outer(x: ShapedTensor["a b 2"]):
+            return inner(x[0, ...])
+
+        # this works, because a == b
+        outer(xp.zeros((3, 3, 2)))
+
+        # this shouldn't work
+        with self.assertRaises(TensorShapeAssertError):
+            outer(xp.zeros((3, 4, 2)))
+
+
+    def test_inner_function_does_not_raise_if_disabled(self):
+
+        @check_tensor_shapes()
+        def inner(y: ShapedTensor["a 2"]):
+            return y
+
+        @check_tensor_shapes()
+        def outer(x: ShapedTensor["a b 2"]):
+            return inner(x[0, ...])
+
+        # this works, because a == b
+        outer(xp.zeros((3, 3, 2)))
+
+        # this also works, because inner can't see 'a'
+        outer(xp.zeros((3, 4, 2)))
+
+
+    def test_inner_function_can_see_outer_variable_if_enabled(self):
+
+        @check_tensor_shapes(include_outer_variables=True)
+        def inner(y: ShapedTensor["a 2"]):
+            # this should return the value of 'b' from outer
+            self.assertEqual(get_shape_variables("b")[0], 4)
+            return y
+
+        @check_tensor_shapes()
+        def outer(x: ShapedTensor["a b 2"]):
+            return inner(x[:, 0, :])
+
+        outer(xp.zeros((3, 4, 2)))
+
+    def test_inner_function_can_not_see_outer_variable_if_disabled(self):
+
+        @check_tensor_shapes()
+        def inner(y: ShapedTensor["a 2"]):
+            # this should return None, as 'b' is not visible here
+            self.assertIsNone(get_shape_variables("b")[0])
+            return y
+
+        @check_tensor_shapes()
+        def outer(x: ShapedTensor["a b 2"]):
+            return inner(x[:, 0, :])
+
+        outer(xp.zeros((3, 4, 2)))
+
+    def test_inner_function_can_not_see_more_than_one_outer_function(self):
+        
+        @check_tensor_shapes(include_outer_variables=True)
+        def inner(z: ShapedTensor["2"]):
+            self.assertEqual(get_shape_variables("b")[0], 4)
+            self.assertIsNone(get_shape_variables("a")[0])
+            return z
+
+        @check_tensor_shapes()
+        def middle(y: ShapedTensor["b 2"]):
+            self.assertIsNone(get_shape_variables("a")[0])
+            return inner(y[0, :])
+
+        @check_tensor_shapes()
+        def outer(x: ShapedTensor["a b 2"]):
+            return middle(x[0, ...])
+        
+        outer(xp.zeros((3, 4, 2)))
+
+    def test_namedtuple_as_return_type_if_enabled(self):
+        @check_tensor_shapes(include_outer_variables=True)
+        class MyTupleEnabled(NamedTuple):
+            p: ShapedTensor["a 2"]
+            q: ShapedTensor["b 2"]
+
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["a b 2"]) -> MyTupleEnabled:
+            return MyTupleEnabled(
+                p=x[0, ...],
+                q=x[:, 0, :]
+            )
+
+        # works, because a == b
+        test(xp.zeros((3, 3, 2)))
+
+        # doesn't work, because a != b
+        with self.assertRaises(TensorShapeAssertError):
+            test(xp.zeros((3, 4, 2)))
+
+
+    def test_namedtuple_as_return_type_if_disabled(self):
+        @check_tensor_shapes(include_outer_variables=False)
+        class MyTupleDisabled(NamedTuple):
+            p: ShapedTensor["a 2"]
+            q: ShapedTensor["b 2"]
+
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["a b 2"]) -> MyTupleDisabled:
+            return MyTupleDisabled(
+                p=x[0, ...],
+                q=x[:, 0, :]
+            )
+
+        # works, because a == b
+        test(xp.zeros((3, 3, 2)))
+
+        # should also work, because outer variables are not visible in the
+        # return type check
+        test(xp.zeros((3, 4, 2)))
+
+        

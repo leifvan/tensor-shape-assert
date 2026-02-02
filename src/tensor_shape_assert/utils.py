@@ -30,3 +30,12 @@ def check_if_dtype_matches(obj, kind, bits):
         raise TensorShapeAssertError(
             f"Dtype '{obj.dtype}' does not support bit checking."
         )
+
+def is_typing_namedtuple_instance(x) -> bool:
+    t = type(x)
+    return (
+        isinstance(x, tuple)
+        and hasattr(t, "_fields")
+        and isinstance(getattr(t, "_fields", None), tuple)
+        and hasattr(t, "__annotations__")  # typing.NamedTuple gives annotations
+    )
