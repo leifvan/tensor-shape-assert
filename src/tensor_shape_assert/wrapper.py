@@ -4,7 +4,10 @@ from typing import Any, Callable, Literal, get_args, NamedTuple
 import warnings
 from contextlib import contextmanager
 
-from .utils import TensorShapeAssertError, check_if_dtype_matches
+from .utils import (
+    TensorShapeAssertError,
+    check_if_dtype_matches
+)
 from .descriptor import (
     descriptor_to_variables,
     split_to_descriptor_items,
@@ -211,6 +214,7 @@ def check_tensor_shapes(
         ints_to_variables: bool = True,
         experimental_enable_autogen_constraints: bool = False,
         check_mode: CheckMode | None = None,
+        include_outer_variables: bool | None = None
 ):
     """
     Enables tensor checking for the decorated function.
@@ -238,6 +242,12 @@ def check_tensor_shapes(
     check_mode : CheckMode, optional
         The check mode to use for this function. If not specified, the global
         check mode is used. See ``set_global_check_mode`` for details.
+    include_outer_variables : bool, optional
+        If ``True``, variables defined in outer functions wrapped with
+        ``check_tensor_shapes`` will also be considered when checking the
+        current function. This allows to define variables in outer functions
+        and use them in inner functions. Default is ``False`` for functions,
+        ``True`` for NamedTuple instances.
     """
     
     if constraints is None:
@@ -299,23 +309,56 @@ def check_tensor_shapes(
                 bindings.apply_defaults()
                 bound_arguments = dict(bindings.arguments)
 
-                # check input type hints
+                # get variables...
+
+                variables: VariablesType = dict()
+
+                # ...from outer function
+
+                if include_outer_variables and len(_current_variables_stack) > 0:
+                    # include variables from outer function
+                    variables.update(_current_variables_stack[-1])
+
+                    add_assignment_trace(
+                        name="<outer variables>",
+                        annotation="",
+                        shape=(),
+                        assignments=variables
+                    )
+
+                # ...from ints
 
                 if ints_to_variables:
-                    variables: VariablesType = {
+                    int_variables: VariablesType = {
                         k: v for k, v in bound_arguments.items()
                         if type(v) is int
                     }
 
-                    if len(variables) > 0:
+                    # check for collisions with outer variables
+
+                    for k in int_variables.keys():
+                        if k in variables and variables[k] != int_variables[k]:
+                            raise VariableConstraintError(
+                                f"Cannot assign integer parameter '{k}' to "
+                                f"shape variable as it is already defined "
+                                f"in the outer function with a different "
+                                f"value ({variables[k]} != "
+                                f"{int_variables[k]})."
+                            )
+
+                    # add to variables
+
+                    variables.update(int_variables)
+
+                    if len(int_variables) > 0:
                         add_assignment_trace(
                             name="<int variables>",
-                            annotation="int",
+                            annotation="",
                             shape=(),
-                            assignments=variables
-                        )
-                else:
-                    variables: VariablesType = dict()
+                            assignments=int_variables
+                        )           
+
+                # run checks for inputs         
 
                 for key, parameter in signature.parameters.items():
                     try:
