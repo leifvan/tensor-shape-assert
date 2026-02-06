@@ -527,7 +527,11 @@ def assert_shape_here(obj_or_shape: Any, descriptor: str) -> None:
     """
 
     # skip if check is disabled
-    if _global_check_mode == "never":
+    if _global_check_mode in ('once', 'never'):
+        warnings.warn(CheckDisabledWarning(
+            "Global check mode is set to 'once' or 'never'. Calls to "
+            "``assert_shape_here`` will be skipped."
+        ))
         return
 
     check_if_context_is_available()
