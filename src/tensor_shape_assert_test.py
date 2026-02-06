@@ -1120,20 +1120,7 @@ class TestCheckMode(unittest.TestCase):
         test(xp.zeros((4, 3, 3)))
 
         set_global_check_mode('always')
-
-    def test_never_global_ignores_assert_shape_here(self):
-        set_global_check_mode('never')
-
-        @check_tensor_shapes()
-        def test(x) -> ShapedTensor["2"]:
-            assert_shape_here(x, "m n 2")
-            return x.sum(axis=(0, 1))
         
-        test(xp.zeros((4, 3, 2)))
-        test(xp.zeros((4, 3, 1)))
-        test(xp.zeros((4, 3, 3)))
-
-        set_global_check_mode('always')
 
     def test_local_always_overrides_global_never(self):
         set_global_check_mode('never')
@@ -1227,31 +1214,58 @@ class TestCheckMode(unittest.TestCase):
         with self.assertRaises(TensorShapeAssertError):
             set_global_check_mode("invalid_mode")
 
-    def test_assert_shape_here_respects_global_check_mode(self):
+    def test_assert_shape_here_respects_global_check_mode_never(self):
         set_global_check_mode('never')
 
         @check_tensor_shapes()
-        def test(x) -> ShapedTensor["2"]:
+        def test(x):
             assert_shape_here(x, "m n 2")
             return x.sum(axis=(0, 1))
         
-        test(xp.zeros((4, 3, 2)))
-        test(xp.zeros((4, 3, 1)))
-        test(xp.zeros((4, 3, 3)))
+        with self.assertWarns(CheckDisabledWarning):
+            test(xp.zeros((4, 3, 2)))
+        with self.assertWarns(CheckDisabledWarning):
+            test(xp.zeros((4, 3, 1)))
+        with self.assertWarns(CheckDisabledWarning):
+            test(xp.zeros((4, 3, 3)))
+
+        set_global_check_mode('always')
+
+
+    def test_assert_shape_here_respects_global_check_mode_once(self):
+
+        set_global_check_mode('once')
+
+        @check_tensor_shapes()
+        def test2(x):
+            assert_shape_here(x, "m n 2")
+            return x.sum(axis=(0, 1))
+
+        with self.assertWarns(CheckDisabledWarning):
+            test2(xp.zeros((4, 3, 1)))
+        with self.assertWarns(CheckDisabledWarning):
+            test2(xp.zeros((4, 3, 2)))
+        with self.assertWarns(CheckDisabledWarning):
+            test2(xp.zeros((4, 3, 3)))
+
+        set_global_check_mode('always')
+
+
+    def test_assert_shape_here_respects_local_check_mode_always(self):
 
         set_global_check_mode('always')
 
         @check_tensor_shapes()
-        def test2(x) -> ShapedTensor["2"]:
+        def test3(x):
             assert_shape_here(x, "m n 2")
             return x.sum(axis=(0, 1))
         
-        test2(xp.zeros((4, 3, 2)))
+        test3(xp.zeros((4, 3, 2)))
 
         with self.assertRaises(TensorShapeAssertError):
-            test2(xp.zeros((4, 3, 1)))
+            test3(xp.zeros((4, 3, 1)))
         with self.assertRaises(TensorShapeAssertError):
-            test2(xp.zeros((4, 3, 3)))
+            test3(xp.zeros((4, 3, 3)))
 
 class TestScalarValues(unittest.TestCase):
     def test_scalar_inputs(self):
