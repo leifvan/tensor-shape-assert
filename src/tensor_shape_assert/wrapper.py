@@ -37,7 +37,7 @@ def unroll_iterable_annotation(annotation, obj, disable_union_warning: bool):
 
     elif isinstance(annotation, types.GenericAlias):
         # try to infer how annotation maps to iterable 
-        sub_annotations = None
+        sub_annotations: list[Any] | tuple[Any] | None = None
 
         if annotation.__origin__ == tuple:
             sub_annotations = annotation.__args__
@@ -72,9 +72,9 @@ def unroll_iterable_annotation(annotation, obj, disable_union_warning: bool):
             for sub_ann, sub_obj in zip(sub_annotations, obj):
                 yield from unroll_iterable_annotation(sub_ann, sub_obj, disable_union_warning)
 
-    elif isinstance(annotation, types.UnionType) and not disable_union_warning:
+    elif isinstance(annotation, types.UnionType):
         for arg in annotation.__args__:
-            if isinstance(arg, types.GenericAlias):
+            if isinstance(arg, types.GenericAlias) and not disable_union_warning:
                 warnings.warn(RuntimeWarning(
                     "You used a union type in a function to be checked by "
                     "tensor_shape_assert. check_tensor_shapes currently does "
