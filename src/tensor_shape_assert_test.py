@@ -864,7 +864,22 @@ class TestOptionalShapeAnnotation(unittest.TestCase):
                 return (xp.zeros(1), )
         
         with self.assertWarns(RuntimeWarning):
-            test(xp.zeros((2, 1)))        
+            test(xp.zeros((2, 1)))
+            
+    def test_dont_warn_optional_output_tuple_if_disabled(self):
+        @check_tensor_shapes(disable_union_warning=True)
+        def test(x: ShapedTensor["a 1"] | None) -> tuple[ShapedTensor["1"]] | None:
+            if x is not None:
+                return x[0, :]
+            else:
+                return (xp.zeros(1), )
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            test(xp.zeros((2, 1))) # should not trigger warning
+            self.assertEqual(len(w), 0)
+        
+            
 
 class TestVariableConstraints(unittest.TestCase):
     def test_lambda_constraints(self):
