@@ -31,13 +31,13 @@ from .trace import (
 
 
 
-def unroll_iterable_annotation(annotation, obj):
+def unroll_iterable_annotation(annotation, obj, disable_union_warning: bool):
     if isinstance(annotation, (ShapeDescriptor, OptionalShapeDescriptor)):
         yield annotation, obj
 
     elif isinstance(annotation, types.GenericAlias):
         # try to infer how annotation maps to iterable 
-        sub_annotations = None
+        sub_annotations: list[Any] | tuple[Any] | None = None
 
         if annotation.__origin__ == tuple:
             sub_annotations = annotation.__args__
@@ -70,11 +70,11 @@ def unroll_iterable_annotation(annotation, obj):
                 )
             
             for sub_ann, sub_obj in zip(sub_annotations, obj):
-                yield from unroll_iterable_annotation(sub_ann, sub_obj)
+                yield from unroll_iterable_annotation(sub_ann, sub_obj, disable_union_warning)
 
     elif isinstance(annotation, types.UnionType):
         for arg in annotation.__args__:
-            if isinstance(arg, types.GenericAlias):
+            if isinstance(arg, types.GenericAlias) and not disable_union_warning:
                 warnings.warn(RuntimeWarning(
                     "You used a union type in a function to be checked by "
                     "tensor_shape_assert. check_tensor_shapes currently does "
@@ -88,8 +88,14 @@ def unroll_iterable_annotation(annotation, obj):
                 ))
 
 
-def check_iterable(annotation: Any, obj: Any, variables: VariablesType, name: str) -> VariablesType:
-    for descriptor, obj in unroll_iterable_annotation(annotation, obj):
+def check_iterable(
+        annotation: Any,
+        obj: Any,
+        variables: VariablesType,
+        name: str,
+        disable_union_warning: bool
+) -> VariablesType:
+    for descriptor, obj in unroll_iterable_annotation(annotation, obj, disable_union_warning):
 
         # skip if its optional and obj is None
         if isinstance(descriptor, OptionalShapeDescriptor) and obj is None:
@@ -214,7 +220,8 @@ def check_tensor_shapes(
         ints_to_variables: bool = True,
         experimental_enable_autogen_constraints: bool = False,
         check_mode: CheckMode | None = None,
-        include_outer_variables: bool | None = None
+        include_outer_variables: bool | None = None,
+        disable_union_warning: bool = False
 ):
     """
     Enables tensor checking for the decorated function.
@@ -248,6 +255,8 @@ def check_tensor_shapes(
         current function. This allows to define variables in outer functions
         and use them in inner functions. Default is ``False`` for functions,
         ``True`` for NamedTuple instances.
+    disable_union_warning : bool, optional
+        If ``True``, the warning about limited support for union types is disabled.
     """
     
     if constraints is None:
@@ -366,7 +375,8 @@ def check_tensor_shapes(
                             annotation=parameter.annotation,
                             obj=bound_arguments[key],
                             variables=variables,
-                            name=key
+                            name=key,
+                            disable_union_warning=disable_union_warning
                         )
                         
                     except TensorShapeAssertError as e:
@@ -409,7 +419,8 @@ def check_tensor_shapes(
                         annotation=signature.return_annotation, 
                         obj=return_value,
                         variables=variables,
-                        name="<return>"
+                        name="<return>",
+                        disable_union_warning=disable_union_warning
                     )
                 except TensorShapeAssertError as e:
                     # wrap exception to provide location info (output)
