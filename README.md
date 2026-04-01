@@ -354,12 +354,4 @@ attention(
 
 ## License
 
-This project is released under the Unlicense. See [LICENSE](LICENSE) for details.
-```
-
-Another benefit from using the typed version is that tooltips in VS Code are more helpful, as they can pass trough the ``Literal`` string. This way you can check the annotated shape without having to open the file with the annotated code.
-
-## Known bugs
-* [ ] ``get_shape_variables`` does not work if checks are disabled. This should be possible but give a performance warning, recommending not to use this feature in performance-critical applications.
-* [x] Variable stack collects int values as variables and prints them, i.e. it produces error messages like ``"Shape torch.Size([1, 4, 4]) does not match descriptor (b, 4, 4) at position 0 based on already inferred variables {'b': 4, 'n': 304, 2: 2, 1: 1, 4: 4}"``
-
+This project is released under the MIT License. See LICENSE for details.
