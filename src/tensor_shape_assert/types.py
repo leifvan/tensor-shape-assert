@@ -1,80 +1,95 @@
-import types
-import inspect
-from typing import Any, Callable, Literal, get_args, get_origin, TYPE_CHECKING
+from functools import partial
+import weakref
+from typing import Any, Iterable, Literal, NamedTuple, get_args, get_origin, TYPE_CHECKING, Dict, Callable
+from array_api_compat import array_namespace
 from typing_extensions import Annotated, TypeVar, TypeAliasType, LiteralString, TypeAlias
-import warnings
 
 # try to import array API protocol for type annotations
 from array_api._2024_12 import Array as ArrayProtocol
 
-from .utils import check_if_dtype_matches
 from .errors import (
-    TensorShapeAssertError,
     MalformedDescriptorError,
     UnionTypeUnsupportedError
 )
 from .descriptor import (
-    descriptor_to_variables,
-    split_to_descriptor_items,
     clean_up_descriptor
+)
+from .utils import (
+    check_if_dtype_matches
 )
 
 VariablesType = dict[str, tuple[int] | int]
 
+# manage labels
+
 # define str subclasses to identify shape descriptors
 
-_NAME_TO_KIND = {
-    'bool': 'bool',
-    'int': 'signed integer',
-    'uint': 'unsigned integer',
-    'integral': 'integral', # (int + uint)
-    'float': 'real floating',
-    'complex': 'complex floating',
-    'numeric': 'numeric' # (everything except bool)
-}
-_DTYPE_SIZES = (8, 16, 32, 64, 128, None)
+# _NAME_TO_KIND = {
+#     'bool': 'bool',
+#     'int': 'signed integer',
+#     'uint': 'unsigned integer',
+#     'integral': 'integral', # (int + uint)
+#     'float': 'real floating',
+#     'complex': 'complex floating',
+#     'numeric': 'numeric' # (everything except bool)
+# }
+# _DTYPE_SIZES = (8, 16, 32, 64, 128, None)
 
-def find_dtype_in_items(items):
-    # for any combination of dtype and size
-    for dtype_size in (_DTYPE_SIZES):
-            for dtype_name, kind in _NAME_TO_KIND.items():
-                if dtype_size is None:
-                    dtype_str = f"{dtype_name}"
-                else:
-                    dtype_str = f"{dtype_name}{dtype_size}"
-
-                if dtype_str in items:
-                    return (kind, dtype_size), dtype_str
-    return None, ""
 
 class ShapeDescriptor(type):
+
+    _label_constraint_fns: dict[str, Callable[[ArrayProtocol], bool] | None] = dict()
+
+    @classmethod
+    def register_label(
+            cls,
+            label: str,
+            constraint_fn: Callable[[ArrayProtocol], bool] | None = None
+    ):
+        cls._label_constraint_fns[label] = constraint_fn
+
+    @classmethod
+    def is_registered_label(cls, label: str) -> bool:
+        return label in cls._label_constraint_fns
+    
+    @classmethod
+    def get_label_constraint_fn(cls, label: str) -> Callable[[ArrayProtocol], bool] | None:
+        return cls._label_constraint_fns[label]
+
+    @classmethod
+    def filter_for_constrained_labels(cls, labels: Iterable[str]) -> frozenset[str]:
+        return frozenset([label for label in labels if cls._label_constraint_fns[label] is not None])
+    
+    @classmethod
+    def filter_for_unconstrained_labels(cls, labels: Iterable[str]) -> frozenset[str]:
+        return frozenset([label for label in labels if cls._label_constraint_fns[label] is None])
+    
+    @classmethod
+    def find_labels_in_items(cls, items: list[str]) -> list[str]:
+        found_labels = []
+        for item in items:
+            if item in cls._label_constraint_fns:
+                found_labels.append(item)
+        return found_labels
+
     def __new__(cls, s: str):
         return type.__new__(cls, str(s), tuple(), dict())
 
     def __init__(self, s: str) -> None:
-        
-        self.dtype = None
-        self.device = None  # kept for compatibility (for now)
 
         # process string
 
         s = clean_up_descriptor(s)
 
-        # look for dtype clues in string (use split to ensure full words)
+        # look for labels in string (use split to ensure full words)
 
-        self.dtype, dtype_str = find_dtype_in_items(s.split(" "))
+        self.labels: frozenset[str] = frozenset(self.find_labels_in_items(s.split(" ")))
 
-        # remove found dtype clue
+        # remove found labels
 
-        self.s = clean_up_descriptor(s.replace(dtype_str, ""))
+        s = " ".join([part for part in s.split(" ") if part not in self.labels])
 
-        # check for additional descriptors
-
-        if find_dtype_in_items(self.s.split(" "))[0] is not None:
-            raise MalformedDescriptorError(
-                f"Multiple dtype descriptors found in shape descriptor '{s}'. "
-                f"Only a single dtype descriptor is allowed."
-            )
+        self.s = clean_up_descriptor(s)
 
 
     def __or__(self, value: Any): # type: ignore
@@ -88,7 +103,36 @@ class ShapeDescriptor(type):
     
     def __str__(self) -> str:
         return self.s
-    
+
+# register default labels
+
+def register_label(label: str, constraint_fn: Callable[[ArrayProtocol], bool] | None = None):
+    ShapeDescriptor.register_label(label, constraint_fn)
+
+register_label('bool', lambda x: check_if_dtype_matches(x, kind='bool', bits=None))
+register_label('int', lambda x: check_if_dtype_matches(x, kind='signed integer', bits=None))
+register_label('int8', lambda x: check_if_dtype_matches(x, kind='signed integer', bits=8))
+register_label('int16', lambda x: check_if_dtype_matches(x, kind='signed integer', bits=16))
+register_label('int32', lambda x: check_if_dtype_matches(x, kind='signed integer', bits=32))
+register_label('int64', lambda x: check_if_dtype_matches(x, kind='signed integer', bits=64))
+register_label('uint', lambda x: check_if_dtype_matches(x, kind='unsigned integer', bits=None))
+register_label('uint8', lambda x: check_if_dtype_matches(x, kind='unsigned integer', bits=8))
+register_label('uint16', lambda x: check_if_dtype_matches(x, kind='unsigned integer', bits=16))
+register_label('uint32', lambda x: check_if_dtype_matches(x, kind='unsigned integer', bits=32))
+register_label('uint64', lambda x: check_if_dtype_matches(x, kind='unsigned integer', bits=64))
+register_label('integral', lambda x: check_if_dtype_matches(x, kind='integral', bits=None))
+register_label('float', lambda x: check_if_dtype_matches(x, kind='real floating', bits=None))
+register_label('float16', lambda x: check_if_dtype_matches(x, kind='real floating', bits=16))
+register_label('float32', lambda x: check_if_dtype_matches(x, kind='real floating', bits=32))
+register_label('float64', lambda x: check_if_dtype_matches(x, kind='real floating', bits=64))
+register_label('complex', lambda x: check_if_dtype_matches(x, kind='complex floating', bits=None))
+register_label('complex64', lambda x: check_if_dtype_matches(x, kind='complex floating', bits=64))
+register_label('complex128', lambda x: check_if_dtype_matches(x, kind='complex floating', bits=128))
+register_label('numeric', lambda x: check_if_dtype_matches(x, kind='numeric', bits=None))
+
+
+
+
 class OptionalShapeDescriptor(ShapeDescriptor):
     pass
 

@@ -1,12 +1,13 @@
 import types
 import inspect
-from typing import Any, Callable, Literal, get_args, NamedTuple
+from typing import Any, Callable, Iterable, Literal, get_args, NamedTuple
 import warnings
-from contextlib import contextmanager
+
+from array_api._2024_12 import Array as ArrayProtocol
 
 from .utils import (
     TensorShapeAssertError,
-    check_if_dtype_matches
+    ArrayIdentityMap
 )
 from .descriptor import (
     descriptor_to_variables,
@@ -17,7 +18,8 @@ from .descriptor import (
 from .types import ShapeDescriptor, OptionalShapeDescriptor, VariablesType
 from .errors import (
     AnnotationMatchingError,
-    DtypeConstraintError,
+    LabelAnnotationError,
+    LabelConstraintError,
     VariableConstraintError,
     CheckDisabledWarning,
     NoVariableContextExistsError
@@ -28,8 +30,6 @@ from .trace import (
     add_assignment_trace,
     finalize_function_trace,
 )
-
-
 
 def unroll_iterable_annotation(annotation, obj, disable_union_warning: bool):
     if isinstance(annotation, (ShapeDescriptor, OptionalShapeDescriptor)):
@@ -87,13 +87,77 @@ def unroll_iterable_annotation(annotation, obj, disable_union_warning: bool):
                     "is allowed and will be checked as expected."
                 ))
 
+# define module level tensor -> label registry
+_global_tensor_label_registry: ArrayIdentityMap[frozenset[str]] = ArrayIdentityMap()
+
+def label_tensor(
+        tensor: ArrayProtocol,
+        label: str | Iterable[str],
+        overwrite: bool = False
+) -> ArrayProtocol:
+    """
+    Labels a tensor with the given label(s). The label(s) are then considered 
+    in the checks of the shape descriptors.
+    Parameters
+    ----------
+    tensor : ArrayProtocol
+        The tensor to be labeled.
+    label : str | Iterable[str]
+        The label(s) to be assigned to the tensor.
+    overwrite : bool, optional
+        If ``True``, existing labels of the tensor will be overwritten.
+        If ``False`` (default), an error will be raised if the tensor already
+        has labels.
+
+    Returns
+    -------
+    ArrayProtocol
+        The same tensor that was passed in, but with the label(s) assigned to it.
+    
+    Raises
+    ------
+    LabelAnnotationError
+        If the given label is not registered or if the tensor already has labels.
+    """
+    if isinstance(label, str):
+        label = [label]
+
+    # check if labels exist and do not have constraint fns
+    try:
+        for l in ShapeDescriptor.filter_for_constrained_labels(label):
+            raise LabelAnnotationError(
+                f"Label '{l}' has a constraint function and cannot be assigned "
+                f"manually using label_tensor."
+            )
+    except KeyError as e:
+        raise LabelAnnotationError(
+            f"Label '{e.args[0]}' is not registered and cannot be assigned "
+            f"manually using label_tensor."
+        )
+
+    # check if object already has labels
+    existing_labels = _global_tensor_label_registry.get(tensor, None)
+    if existing_labels is not None:
+        if not overwrite:
+            raise LabelAnnotationError(
+                f"Tensor already has labels {existing_labels}. Cannot assign "
+                f"new labels {label} to the same tensor."
+            )
+        else:
+            _global_tensor_label_registry[tensor] = frozenset(label)
+            return tensor
+
+    _global_tensor_label_registry[tensor] = frozenset(label)
+    return tensor
+
 
 def check_iterable(
         annotation: Any,
         obj: Any,
         variables: VariablesType,
         name: str,
-        disable_union_warning: bool
+        disable_union_warning: bool,
+        must_have_labels: bool
 ) -> VariablesType:
     for descriptor, obj in unroll_iterable_annotation(annotation, obj, disable_union_warning):
 
@@ -101,26 +165,49 @@ def check_iterable(
         if isinstance(descriptor, OptionalShapeDescriptor) and obj is None:
             continue
 
+        try:
+            constrained_labels = ShapeDescriptor.filter_for_constrained_labels(descriptor.labels)
+            unconstrained_labels = ShapeDescriptor.filter_for_unconstrained_labels(descriptor.labels)
+        except KeyError as e:
+            raise LabelAnnotationError(
+                f"Label '{e.args[0]}' is not registered. Only registered "
+                f"labels can be used in shape descriptors. "
+            )
+
+        # check labels with constraint fns
+        for label in constrained_labels:
+            constraint_fn = ShapeDescriptor.get_label_constraint_fn(label)
+            if constraint_fn is not None:
+                if not constraint_fn(obj):
+                    raise LabelConstraintError(
+                        f"Tensor with does not fulfill the constraint for "
+                        f"label '{label}'."
+                    )
+
+        registry_labels = _global_tensor_label_registry.get(obj, frozenset())
+
+        if must_have_labels:
+            # check labels annotations for unconstrained labels
+            if unconstrained_labels != registry_labels:
+                raise LabelAnnotationError(
+                    f"Tensor with labels {registry_labels} does not match "
+                    f"annotation with labels {unconstrained_labels}."
+                )
+        elif registry_labels and not unconstrained_labels.issubset(registry_labels):
+            raise LabelAnnotationError(
+                f"Tensor with labels {registry_labels} must at least have "
+                f"annotation with labels {unconstrained_labels}."
+            )
+        elif not registry_labels and unconstrained_labels:
+            # add to registry if not in registry and annotation has labels
+            label_tensor(obj, unconstrained_labels)
+
         # check shape
         variables = descriptor_to_variables(
             shape_descriptor=str(descriptor),
             shape=obj.shape,
             variables=variables
         )
-
-        # optionally check dtype
-        if descriptor.dtype is not None:
-            if not check_if_dtype_matches(obj, *descriptor.dtype):
-                raise DtypeConstraintError(
-                    f"Dtype '{obj.dtype}' does not match the annotated dtype "
-                    f"'{descriptor.dtype}'."
-                )
-            
-        # optionally check device
-        if descriptor.device is not None:
-            raise NotImplementedError(
-                "Device checks are not implemented yet."
-            )
 
         add_assignment_trace(
             name=name,
@@ -134,11 +221,11 @@ def check_iterable(
 # define a module level stack for currently declared variables
 _current_variables_stack: list[VariablesType] = []
 
+
 # module level check mode
 CheckMode = Literal["always", "once", "never"]
 _global_check_mode: CheckMode = "always"
 _checked_functions: set = set()
-
 
 
 def assert_valid_check_mode(mode: CheckMode):
@@ -160,17 +247,6 @@ def set_global_check_mode(mode: CheckMode):
 
     _global_check_mode = mode
 
-
-
-
-
-# def print_if_trace(msg: str, has_vars: bool = False):
-#     if _trace_mode == "enabled":
-#         # infer stack size by looking at current variables stack
-#         stack_size = len(_current_variables_stack)
-#         if not has_vars:
-#             stack_size += 1
-#         print(">", " " * 4 * stack_size, msg)
 
 def run_expression_constraint(
         expression: str,
@@ -376,7 +452,8 @@ def check_tensor_shapes(
                             obj=bound_arguments[key],
                             variables=variables,
                             name=key,
-                            disable_union_warning=disable_union_warning
+                            disable_union_warning=disable_union_warning,
+                            must_have_labels=True,
                         )
                         
                     except TensorShapeAssertError as e:
@@ -384,7 +461,7 @@ def check_tensor_shapes(
                         raise TensorShapeAssertError(
                             f"Shape assertion failed during check of input "
                             f"parameter '{key}' of '{fn.__name__}': {e}"
-                        )
+                        ) from e
                     
                 # check input variable constraints (allow errors for now)
                 check_constraints(constraints, variables, skip_on_error=True)
@@ -420,7 +497,8 @@ def check_tensor_shapes(
                         obj=return_value,
                         variables=variables,
                         name="<return>",
-                        disable_union_warning=disable_union_warning
+                        disable_union_warning=disable_union_warning,
+                        must_have_labels=False,
                     )
                 except TensorShapeAssertError as e:
                     # wrap exception to provide location info (output)
