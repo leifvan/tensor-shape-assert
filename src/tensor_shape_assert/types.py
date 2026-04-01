@@ -107,6 +107,35 @@ class ShapeDescriptor(type):
 # register default labels
 
 def register_label(label: str, constraint_fn: Callable[[ArrayProtocol], bool] | None = None):
+    """
+    Register a custom label token for use in shape descriptors.
+
+    Labels appear as tokens alongside dimension tokens in a descriptor string
+    (e.g. ``ShapedTensor["my_label n k"]``).  Two kinds of label are
+    supported:
+
+    * **Unconstrained labels** (``constraint_fn=None``): Group tensors by
+      role.  Tensors must be explicitly tagged with ``label_tensor`` before
+      being passed to a checked function; the decorator verifies that the
+      tensor's attached labels match the annotation.
+    * **Constrained labels** (``constraint_fn`` provided): Behave like dtype
+      annotations.  Any tensor whose annotation contains this label is
+      automatically checked by calling ``constraint_fn(tensor)``.  Tensors
+      with constrained labels cannot be tagged via ``label_tensor``.
+
+    Built-in dtype tokens (``bool``, ``int``, ``float``, etc.) are registered
+    using this function with appropriate constraint functions.
+
+    Parameters
+    ----------
+    label : str
+        The token to register.  Should not conflict with integer literals,
+        ``"*"``, ``"..."``-prefixed tokens, or already-registered labels.
+    constraint_fn : Callable[[array], bool] | None, optional
+        A callable that receives the tensor and returns ``True`` if the
+        constraint is satisfied.  If ``None`` (default), the label is
+        unconstrained.
+    """
     ShapeDescriptor.register_label(label, constraint_fn)
 
 register_label('bool', lambda x: check_if_dtype_matches(x, kind='bool', bits=None))
@@ -138,24 +167,32 @@ class OptionalShapeDescriptor(ShapeDescriptor):
 
 class ShapedTensor(ArrayProtocol):
     """
-    A helper class that allows to annotate a string that describes the shape
-    of the annotated object and is then considered by the
-    ``check_tensor_shapes`` wrapper. Use the generics syntax
-    ``ShapedTensor[<desc>]`` to annotate the objects, where ``<desc>`` is a
-    string which contains a whitespace-separated list of shape descriptions
-    for each of the dimensions. More particularly these dimension descriptors
-    may be
-    * an integer, to test against a fixed size,
-    * ``'*'`` to denote an arbitrary size along that dimension,
-    * ``'...'`` followed by an optional name to denote an arbitrary number of
-    dimensions (only allowed once per shape),
-    * a string that does not fulfill any of the  rules above, which is then
-    interpreted as a variable and checked for equality across all annotated 
-    arguments and return values of the function.
+    Annotation helper for specifying the expected shape (and optional dtype)
+    of an array-like parameter or return value.
 
-    Note that most punctuation is replaced with whitespaces, so for example
-    it is also possible use a comma-separated list like
-    ``ShapedTensor["a,b,c"]`` instead of ``ShapedTensor["a b c"]``.
+    Use the subscript syntax ``ShapedTensor["<desc>"]`` in type annotations.
+    The descriptor ``<desc>`` is a whitespace-separated string where each
+    token describes one dimension in order.  Tokens may be:
+
+    * An **integer** (e.g. ``"5"``) — the dimension must have exactly that size.
+    * ``"*"`` — wildcard; any size is accepted.
+    * An **identifier** (e.g. ``"n"``) — a variable whose value is inferred
+      from the first annotated parameter that resolves it and then enforced
+      on every subsequent parameter that references the same name.
+    * ``"..."`` — zero or more batch dimensions (at most one per descriptor).
+    * ``"...B"`` — named batch dimensions; the name ``B`` is matched across
+      all annotations that use the same batch-dimension name.
+    * An empty string ``""`` — equivalent to ``ScalarTensor``; the array must
+      be 0-dimensional.
+    * A **dtype token** (e.g. ``"float32"``, ``"uint8"``, ``"complex"``)
+      placed anywhere in the descriptor.  See ``register_label`` for the full
+      list of built-in dtype tokens.
+
+    Most punctuation characters are treated as whitespace, so
+    ``ShapedTensor["a,b,c"]`` is equivalent to ``ShapedTensor["a b c"]``.
+
+    ``ShapedTensor`` itself cannot be instantiated; it is only meaningful as
+    a type annotation consumed by ``check_tensor_shapes``.
     """
     def __init__(self, *args, **kwargs):
         raise RuntimeError(

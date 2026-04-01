@@ -103,12 +103,35 @@ def finalize_function_trace():
 
 
 def start_trace_recording():
+    """
+    Begin recording shape-inference trace information.
+
+    After calling this function, every call to a ``@check_tensor_shapes``-
+    decorated function appends ``TraceRecord`` entries that capture the
+    variable assignments produced by each annotated parameter, in the order
+    they are processed.
+
+    Call ``stop_trace_recording()`` to retrieve the collected records.  Any
+    previously recorded data is cleared when this function is called.
+    """
     global _trace_enabled
     _trace_enabled = True
     _trace_records.clear()
     _trace_stack.clear()
 
 def stop_trace_recording() -> list[TraceRecord]:
+    """
+    Stop recording trace information and return the collected records.
+
+    Returns
+    -------
+    list[TraceRecord]
+        The trace records captured since the last call to
+        ``start_trace_recording()``.  Each ``TraceRecord`` pairs a
+        ``TracedFunctionCall`` (function name, source location, call index)
+        with a ``TracedVariableAssignment`` (parameter name, descriptor,
+        observed shape, resulting variable dict).
+    """
     global _trace_enabled
     _trace_enabled = False
     records = _trace_records.copy()
@@ -117,6 +140,23 @@ def stop_trace_recording() -> list[TraceRecord]:
     return records
 
 def trace_records_to_string(records: list[TraceRecord]) -> str:
+    """
+    Format a list of trace records as a human-readable string.
+
+    The output is indented to reflect call-stack depth and groups records by
+    the wrapped function they belong to, listing each parameter's descriptor,
+    observed shape, and resulting variable assignments.
+
+    Parameters
+    ----------
+    records : list[TraceRecord]
+        Records returned by ``stop_trace_recording()``.
+
+    Returns
+    -------
+    str
+        A formatted multi-line string suitable for printing or logging.
+    """
     lines = []
     mentioned_calls = set()
 
