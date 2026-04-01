@@ -7,3 +7,4 @@ build
 **/.mypy_cache
 benchmark_results.csv
 experiments.ipynb
+dist

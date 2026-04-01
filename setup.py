@@ -7,16 +7,14 @@ long_description = (here / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="tensor-shape-assert",
-    version="0.4.0",
+    version="0.4.1",
     description="A simple runtime assert library for tensor-based frameworks.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/leifvan/tensor-shape-assert",
     author="Leif Van Holland",
-    author_email="holland@cs.uni-bonn.de",
     classifiers=[
         "Development Status :: 3 - Alpha",
-        "License :: OSI Approved :: Unlicense",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3 :: Only",
     ],

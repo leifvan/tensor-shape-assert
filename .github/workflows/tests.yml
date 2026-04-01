@@ -2,10 +2,9 @@ name: CI
 
 on:
   pull_request:
-    paths-ignore:
-      - '**/*.md'
-      - 'README.md'
-      - 'setup.py'
+    paths:
+      - "src/**"
+
 
 permissions:
   contents: read
