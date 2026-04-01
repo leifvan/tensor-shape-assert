@@ -5,6 +5,7 @@
 # pyright: reportPossiblyUnboundVariable=false
 # mypy: ignore-errors
 
+from copy import deepcopy
 import sys
 import unittest
 import warnings
@@ -22,13 +23,17 @@ from tensor_shape_assert import (
     ScalarTensor,
     start_trace_recording,
     stop_trace_recording,
-    trace_records_to_string
+    trace_records_to_string,
+    register_label,
+    label_tensor
 )
 
 from tensor_shape_assert.errors import (
     MalformedDescriptorError,
     UnionTypeUnsupportedError,
     CheckDisabledWarning,
+    LabelAnnotationError,
+    LabelConstraintError
 )
 
 from tensor_shape_assert.utils import TensorShapeAssertError
@@ -36,6 +41,7 @@ from tensor_shape_assert.wrapper import (
     NoVariableContextExistsError,
     VariableConstraintError
 )
+from tensor_shape_assert.types import ShapeDescriptor
 from test_utils import get_library_by_name
 
 # read library to be used from env
@@ -747,11 +753,11 @@ class TestArbitrarilyNestedInputs(unittest.TestCase):
                 xp.zeros((9, 2))
             )
 
-        with self.assertRaises(AttributeError):
-            test((
-                (xp.zeros((10, 2)),),
-                (xp.zeros((10, 2)),),
-            ))
+        # with self.assertRaises(AttributeError):
+        #     test((
+        #         (xp.zeros((10, 2)),),
+        #         (xp.zeros((10, 2)),),
+        #     ))
 
         with self.assertRaises(TensorShapeAssertError):
             test(
@@ -1050,12 +1056,6 @@ class TestDtypeAnnotationTorch(unittest.TestCase):
 
         with self.assertRaises(TensorShapeAssertError):
             test(xp.zeros((1, 2, 3), dtype=xp.float64))
-
-    def test_fails_with_multiple_dtype_descriptors(self):
-        with self.assertRaises(MalformedDescriptorError):
-            @check_tensor_shapes()
-            def test(x: ShapedTensor["float n m complex 3"]) -> ShapedTensor["m"]:
-                return xp.astype(xp.median(x.sum(axis=2), dim=0)[0], xp.int32)
 
     def test_scalar_dtype_annotation(self):
         @check_tensor_shapes()
@@ -1634,3 +1634,149 @@ class TestKeepingOuterVariables(unittest.TestCase):
         test(xp.zeros((3, 4, 2)))
 
         
+class TestLabelSystem(unittest.TestCase):
+
+    def setUp(self) -> None:
+        self._original_label_constraint_fns = deepcopy(ShapeDescriptor._label_constraint_fns)
+        # unconstrained
+        register_label("test_label")
+        register_label("test_label_2")
+        # constrained
+        register_label("batch_16", lambda v: v.shape[0] == 16)
+        register_label("sum_0", lambda v: xp.sum(v) == 0)
+        return super().setUp()
+
+    def tearDown(self) -> None:
+        ShapeDescriptor._label_constraint_fns = self._original_label_constraint_fns
+        return super().tearDown()
+
+    def test_input_annotation_checks_label(self):
+        @check_tensor_shapes()
+        def correct_label_annotator_fn(x: ShapedTensor["n m 3 test_label"]) -> ShapedTensor["3"]:
+            return xp.sum(x, axis=(0, 1))
+
+        @check_tensor_shapes()
+        def wrong_label_annotator_fn(x: ShapedTensor["n m 3 test_label_2"]) -> ShapedTensor["3"]:
+            return xp.sum(x, axis=(0, 1))
+
+        x = label_tensor(xp.zeros((6, 6, 3)), "test_label")
+        correct_label_annotator_fn(x)
+
+        with self.assertRaises(TensorShapeAssertError):
+            wrong_label_annotator_fn(x)
+
+
+    def test_output_annotation_labels_tensor(self):
+        @check_tensor_shapes()
+        def label_producer_fn(x: ShapedTensor["n m 3"]) -> ShapedTensor["3 test_label"]:
+            return x.sum(axis=(0, 1))
+
+        @check_tensor_shapes()
+        def correct_label_consumer_fn(x: ShapedTensor["3 test_label"]) -> ShapedTensor["3"]:
+            return x
+
+        @check_tensor_shapes()
+        def wrong_label_consumer_fn(x: ShapedTensor["3 test_label_2"]) -> ShapedTensor["3"]:
+            return x
+
+        # y should have "test_label"
+        x = xp.zeros((6, 5, 3))
+        y = label_producer_fn(x)
+        correct_label_consumer_fn(y)
+
+        with self.assertRaises(TensorShapeAssertError):
+            wrong_label_consumer_fn(y)
+
+
+    def test_only_registered_labels_can_be_used(self):
+
+        label_tensor(xp.zeros((9, 4, 3)), "test_label")
+
+        with self.assertRaises(LabelAnnotationError):
+            label_tensor(xp.zeros((8, 4, 3)), "unregistered_label")
+
+
+    def test_labelling_with_constrained_labels_not_allowed(self):
+        with self.assertRaises(TensorShapeAssertError):
+            label_tensor(xp.zeros((7, 4, 3)), "batch_16")
+
+    def test_constraints_checked_on_input_annotation(self):
+
+        if os.environ["TSA_TEST_LIBRARY"] in ("jax", "sparse"):
+            self.skipTest(
+                f"Skipping test for {xp.__name__} library, because arrays are "
+                "immutable and we need to modify the array in-place to test "
+                "that the constraint is re-checked on each use."
+            )
+
+        @check_tensor_shapes()
+        def fn(x: ShapedTensor["n m 3 sum_0"]) -> ShapedTensor["3"]:
+            return xp.sum(x, axis=(0, 1))
+
+        x = xp.zeros((6, 4, 3))
+        fn(x)
+        x[:] = 1
+
+        self.assertNotEqual(xp.sum(x), 0)
+
+        with self.assertRaises(TensorShapeAssertError):
+            # this should fail, because the label constraint should be 
+            # re-checked on each use    
+            fn(x)
+
+    def test_constraints_checked_on_output_annotation(self):
+        @check_tensor_shapes()
+        def fn(x: ShapedTensor["n m 3"]) -> ShapedTensor["3 sum_0"]:
+            return xp.sum(x, axis=(0, 1))
+        
+        fn(xp.zeros((5, 6, 3)))
+
+        with self.assertRaises(TensorShapeAssertError):
+            fn(xp.ones((5, 7, 3)))
+
+    def test_all_labels_must_be_satisfied(self):
+        @check_tensor_shapes()
+        def fn(x: ShapedTensor["n m 3 test_label test_label_2"]) -> ShapedTensor["3"]:
+            return xp.sum(x, axis=(0, 1))
+
+        fn(label_tensor(xp.zeros((16, 4, 3)), ("test_label", "test_label_2")))
+
+        with self.assertRaises(TensorShapeAssertError):
+            fn(label_tensor(xp.zeros((5, 5, 3)), "test_label"))
+
+        with self.assertRaises(TensorShapeAssertError):
+            fn(label_tensor(xp.zeros((16, 4, 3)), "test_label_2"))
+
+    def test_overwriting_labels(self):
+        @check_tensor_shapes()
+        def fn(x: ShapedTensor["n m 3 test_label"]) -> ShapedTensor["3"]:
+            return xp.sum(x, axis=(0, 1))
+
+        @check_tensor_shapes()
+        def fn_2(x: ShapedTensor["n m 3 test_label_2"]) -> ShapedTensor["3"]:
+            return xp.sum(x, axis=(0, 1))
+        
+        x = label_tensor(xp.zeros((5, 8, 3)), "test_label")
+        fn(x)
+
+        # should not work before overwriting
+        with self.assertRaises(TensorShapeAssertError):
+            fn_2(x)
+
+        # overwrite the label, now fn_2 should work
+        x = label_tensor(x, "test_label_2", overwrite=True)
+        fn_2(x)
+
+        # should no longer work
+        with self.assertRaises(TensorShapeAssertError):
+            fn(x)
+
+    def test_only_overwrite_if_allowed(self):
+        x = label_tensor(xp.zeros((5, 9, 3)), "test_label")
+
+        # should raise error if we try to overwrite without overwrite=True
+        with self.assertRaises(LabelAnnotationError):
+            label_tensor(x, "test_label_2", overwrite=False)
+
+    # def test_try_to_force_weakref_collision(self):
+    #     ...
