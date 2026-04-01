@@ -234,13 +234,23 @@ def assert_valid_check_mode(mode: CheckMode):
 
 def set_global_check_mode(mode: CheckMode):
     """
-    Set the global check mode. Possible optionals are
-    * ``"always"``: Always check all functions wrapped with
-     ``check_tensor_shapes``
-    * ``"once"``: Check each function only once
-    * ``"never"``: Never check any functions
+    Set the global check mode for all functions decorated with
+    ``check_tensor_shapes``.
 
-    This behavior is overwritten by the per-function check mode.
+    The per-function ``check_mode`` argument takes precedence over this
+    setting when it is explicitly specified.
+
+    Parameters
+    ----------
+    mode : {"always", "once", "never"}
+        * ``"always"`` — check every call (default).
+        * ``"once"`` — check each decorated function only on its first call.
+        * ``"never"`` — disable all shape checks globally.
+
+    Raises
+    ------
+    TensorShapeAssertError
+        If ``mode`` is not one of the accepted values.
     """
     global _global_check_mode
     assert_valid_check_mode(mode)
@@ -300,39 +310,40 @@ def check_tensor_shapes(
         disable_union_warning: bool = False
 ):
     """
-    Enables tensor checking for the decorated function.
+    Decorator that enables runtime shape (and dtype) checking for a function,
+    class ``__init__``, or ``NamedTuple`` class.
+
+    Annotate parameters and/or return values with ``ShapedTensor["<desc>"]``
+    and this decorator will validate shapes on every call (subject to
+    ``check_mode``).
 
     Parameters
     ----------
-
-    constraints : list, optional
-        A list of string expressions or callables that are
-        run for the variable assignments before and after the wrapped function
-        is called. If callables are given, they receive the variable assignments
-        as a dictionary and are expected to return ``True`` if the constraint
-        is fullfilled, ``False`` otherwise.
-    
+    constraints : list[str | Callable], optional
+        Additional constraints on shape variables.  String expressions are
+        evaluated as equality checks (e.g. ``"a == 2 * b"``).  Callables
+        receive the variable dict ``{name: value}`` and must return ``True``
+        if the constraint is satisfied.  Constraints are checked *before* and
+        *after* the wrapped call; errors before the call are suppressed until
+        after the call when all variables are fully resolved.
     ints_to_variables : bool, optional
-        If ``True`` (default), all function parameters of type ``int`` will be added to
-        the list of shape variables and can be used in a shape descriptor.
-
+        If ``True`` (default), all ``int``-typed parameters are promoted to
+        shape variables and can be referenced in shape descriptors.
     experimental_enable_autogen_constraints : bool, optional
-        If ``True``, all variable names will be compiled as constraints. This
-        comes with two caveats: First of all, as names are split by whitespaces,
-        naming the variables as expressions does not support any whitespaces.
-        Additionally, variable names must follow the Python variable naming
-        conventions.
-    check_mode : CheckMode, optional
-        The check mode to use for this function. If not specified, the global
-        check mode is used. See ``set_global_check_mode`` for details.
-    include_outer_variables : bool, optional
-        If ``True``, variables defined in outer functions wrapped with
-        ``check_tensor_shapes`` will also be considered when checking the
-        current function. This allows to define variables in outer functions
-        and use them in inner functions. Default is ``False`` for functions,
-        ``True`` for NamedTuple instances.
+        If ``True``, each shape variable is automatically constrained to equal
+        its value from the outer scope.  Requires variables to be valid Python
+        identifiers without whitespace.  Experimental — interface may change.
+    check_mode : {"always", "once", "never"} | None, optional
+        Per-function check mode.  Overrides the global setting set by
+        ``set_global_check_mode``.  If ``None`` (default), the global mode
+        is used.
+    include_outer_variables : bool | None, optional
+        If ``True``, shape variables already resolved in the enclosing
+        ``check_tensor_shapes`` scope are inherited.  Defaults to ``False``
+        for plain functions and ``True`` for ``NamedTuple`` instances.
     disable_union_warning : bool, optional
-        If ``True``, the warning about limited support for union types is disabled.
+        If ``True``, suppress the ``RuntimeWarning`` that is raised when a
+        union type contains a tuple or list (which cannot be fully checked).
     """
     
     if constraints is None:
@@ -569,20 +580,31 @@ def check_if_context_is_available():
 
 def get_shape_variables(names: str) -> tuple[tuple[int] | int | None, ...]:
     """
-    Returns the inferred values of the tensor shape variables of the innermost
-    function wrapped with check_tensor_shapes.
+    Return the current inferred values of shape variables.
+
+    Must be called from inside a ``@check_tensor_shapes``-wrapped function.
+    The variables are those inferred from the annotated parameters that have
+    already been checked by the time this is called.
 
     Parameters
     ----------
-    
     names : str
-        A shape descriptor string. See ``ShapedTensor`` for details.
-    
+        A space-separated list of variable names to retrieve.  The syntax
+        follows the same rules as a shape descriptor (see ``ShapedTensor``).
+
     Returns
     -------
-    tuple[int | tuple[int] | None, ...]
-        A tuple of integers representing the inferred values of the variables
-        given in ``names``.
+    tuple[int | tuple[int, ...] | None, ...]
+        One entry per name in ``names``:
+
+        * An ``int`` for a regular dimension variable.
+        * A ``tuple[int, ...]`` for a named batch-dimension variable.
+        * ``None`` if the variable has not yet been resolved.
+
+    Raises
+    ------
+    NoVariableContextExistsError
+        If called outside of a ``check_tensor_shapes``-wrapped function.
     """
     check_if_context_is_available()
     
@@ -600,19 +622,32 @@ def get_shape_variables(names: str) -> tuple[tuple[int] | int | None, ...]:
 
 def assert_shape_here(obj_or_shape: Any, descriptor: str) -> None:
     """
-    Checks if the given object or shape matches the given ``descriptor``.
-    Variables in the descriptor not previously defined in the wrapped function
-    will be set to the appropriate value and are used in subsequent calls to
-    functions accessing the states of the shape variables, which includes
-    the check of the function's output.
+    Validate a tensor or shape against a descriptor from inside a wrapped function.
+
+    Any variables in ``descriptor`` that have not yet been resolved are
+    set to the values implied by ``obj_or_shape``.  These values are then
+    available to subsequent calls to ``get_shape_variables`` and to the
+    check of the function's return annotation.
+
+    Must be called from inside a ``@check_tensor_shapes``-wrapped function.
 
     Parameters
     ----------
-    obj_or_shape
-        Either an object with a ``.shape`` property or a shape to be checked
-        against ``descriptor``.
+    obj_or_shape : array or tuple[int, ...]
+        Either an array-like object with a ``.shape`` property, or a plain
+        shape tuple.
     descriptor : str
-        A shape descriptor string. See ``ShapedTensor`` for details.
+        A shape descriptor string.  See ``ShapedTensor`` for the full syntax.
+
+    Raises
+    ------
+    TensorShapeAssertError
+        If the shape does not match ``descriptor``.
+    NoVariableContextExistsError
+        If called outside of a ``check_tensor_shapes``-wrapped function.
+    CheckDisabledWarning
+        Emitted (as a warning, not an error) when the global check mode is
+        ``"once"`` or ``"never"`` and the call is therefore skipped.
     """
 
     # skip if check is disabled

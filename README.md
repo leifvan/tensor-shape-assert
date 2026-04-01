@@ -1,203 +1,360 @@
 # tensor-shape-assert
 
-A minimal utility library that
+**Runtime tensor shape and dtype checking through type annotations.**
 
-* ensures correct input and output shapes of arrays in your function during runtime,
-* adds code readability through clear shape annotations,
-* supports any array class that exposes a ``shape`` property,
-* and a lot more!
+`tensor-shape-assert` validates the shapes (and optionally dtypes) of array-like objects at function call time, based on annotations you already write. Shared dimension variables are automatically inferred and matched across all annotated parameters and return values — a mismatch raises a clear error before your computation runs.
+
+Compatible with any array library that exposes a `.shape` property, including NumPy, PyTorch, JAX, and TensorFlow.
+
+## Features
+
+- Runtime shape validation via `ShapedTensor["..."]` type annotations
+- Shape **variables** inferred from — and matched across — multiple parameters and return values
+- **Batch dimension** support with named and unnamed ellipsis tokens (`...`, `...B`)
+- **Dtype annotations** (`bool`, `int8`, `float32`, `complex128`, …)
+- **Optional** and **nested** annotations (tuples, lists, `NamedTuple`)
+- `int` parameters automatically promoted to shape variables
+- Per-function and global **check modes** (`always`, `once`, `never`) for zero-overhead production deploys
+- Compatible with static type checkers (MyPy, Pyright) via `ShapedLiteral` aliases
 
 ## Installation
 
-Currently, the package can only be installed directly from the repository with
 ```bash
 pip install git+https://github.com/leifvan/tensor-shape-assert
 ```
 
-## Usage
-
-Decorate functions with ``@check_tensor_shapes()`` and any parameter with a type hint of type ``ShapedTensor[<desc>]`` will be dynamically checked for the correct shape. A shape descriptor is a *string* of space-separated length descriptions for each dimension. The return value can also be annotated in the same way.
-
-### Simple example
+## Quick Start
 
 ```python
-import torch
-from .tensor_shape_assert import check_tensor_shapes, ShapedTensor
+import numpy as np
+from tensor_shape_assert import check_tensor_shapes, ShapedTensor
 
 @check_tensor_shapes()
-def my_simple_func(
-        x: ShapedTensor["a b 3"],
-        y: ShapedTensor["b 2"]
-) -> ShapedTensor["a"]:
+def matrix_multiply(
+        x: ShapedTensor["batch m k"],
+        y: ShapedTensor["batch k n"],
+) -> ShapedTensor["batch m n"]:
+    return x @ y
 
-    z = x[:, :, :2] + y[None]
-    return (z[:, :, 0] * z[:, :, 1]).sum(dim=1)
+matrix_multiply(np.zeros((4, 5, 3)), np.zeros((4, 3, 7)))  # passes
+matrix_multiply(np.zeros((4, 5, 3)), np.zeros((4, 2, 7)))  # raises TensorShapeAssertError
 ```
 
-Calling it like this
-```python
-my_simple_func(torch.zeros(5, 4, 3), y=torch.zeros(4, 2)) # works
-```
-passes the test, because ``a=5 and b=4`` matches for both input and output annotations.
+The decorator infers `batch=4`, `m=5`, `k=3` from `x` and checks that `y` and the return value are consistent with those values.
 
-For
-```python
-my_simple_func(torch.zeros(5, 4, 3), y=torch.zeros(4, 3)) # fails
-```
-the test fails, because `y` is expected to have length 2 in the second dimension.
+## Shape Descriptor Syntax
 
-### Integers
+A shape descriptor is a whitespace-separated string (most punctuation is also treated as whitespace). Each token describes one dimension:
 
- * Sizes can be defined explicitly as an integer, e.g. ``"5 3"`` (only arrays of shape ``(5, 3)`` are valid)
- * ``*`` can be used as a wildcard, allowing any size, e.g. ``"* 5"`` (any 2D tensor with length 5 in the second dimension is valid)
- * using an empty string ``""`` or the alias ``ScalarTensor`` checks for scalar tensors.
+| Token | Meaning |
+|-------|---------|
+| `5` | Exact size 5 |
+| `*` | Wildcard — any size |
+| `n` | Variable — resolved and matched across all annotations that use the same name |
+| `...` | Zero or more batch dimensions (may appear at most once) |
+| `...B` | Named batch dimensions — must match across annotations sharing the same name `B` |
+| `""` / `ScalarTensor` | Scalar (0-dimensional) tensor |
+
+Dtype tokens can appear anywhere in the descriptor alongside dimension tokens (see [Dtype Annotations](#dtype-annotations)).
+
+## Core Concepts
 
 ### Variables
 
- * Sizes may be given as a variable, e.g. ``"b 3"`` (any 2D tensor with length 3 in the second dimension is valid)
- * Variables can have arbitrary names, as long as they are not interpretable by the other rules, e.g. ``"my_first_dimension 123_456_test 2"`` (any 3D tensor with length 2 in the third dimension). See also dtype annotations below.
+When two parameters share a variable name, their sizes along that dimension must agree:
 
- If multiple parameters are annotated with the same variable, the shapes must have the same length along that dimension, i.e. if a tensor ``x`` has annotation ``"a b 3"`` and another tensor ``y`` has annotation ``"b 2"``, then ``x.shape[1]`` must be equal to ``y.shape[0]``.
+```python
+@check_tensor_shapes()
+def add(x: ShapedTensor["n k"], y: ShapedTensor["n k"]) -> ShapedTensor["n k"]:
+    return x + y
+```
 
- Parameters of type ``int`` are added to the list of shape variables, which allows to specify fixed shapes dynamically. This behavior can be turned off with ``@check_tensor_shapes(ints_to_variables=False)``. An example is shown below.
+Variable names can be any identifier not reserved by other rules (integers, `*`, `...`, dtype tokens).
+
+### Integers as Shape Variables
+
+`int` parameters are automatically promoted to shape variables, enabling dynamic shape constraints:
+
+```python
+@check_tensor_shapes()
+def take_k(x: ShapedTensor["n k"], k: int) -> ShapedTensor["n k"]:
+    return x[:, :k]
+
+take_k(np.zeros((10, 4)), k=4)  # passes — k=4 matches x.shape[1]
+take_k(np.zeros((10, 4)), k=3)  # raises TensorShapeAssertError
+```
+
+Disable this behaviour with `@check_tensor_shapes(ints_to_variables=False)`.
 
 ### Batch Dimensions
 
- * An arbitrary length of batch dimensions can be defined, e.g. ``"... k 3"`` (an n-dimensional tensor (n >= 2) with length 3 in the last dimension)
- * The batch dimension(s) can also be named to be matched across annotations, e.g. ``"...B n 4"`` (an n-dimensional tensor (n >= 2) with length 4 in the last dimension)
+Use `...` for an arbitrary number of leading dimensions:
 
-### Nested Annotations and Optional Values
-
- Additionally, the the annotations can be arbitrarily nested in tuples or lists. Optional ``ShapedTensor`` parameters must be explicitly annotated as a union with the ``NoneType`` (see examples below). ``NamedTuple`` classes are also supported.
-
-### Dtypes
-
- The dtype can be annotated by adding a dtype kind (``bool, int, uint, float, complex, numeric``) and optionally a bit size (e.g. ``uint8``) anywhere in the descriptor. Examples: ``"uint8 a b 3"``, or ``"a b 3 float"``. The names above can therefore not be used as a variable names.
-
-### Get Variable States
-
-There are convenience functions that access the current states of the shape variables inside the wrapped function. You can use ``get_shape_variables(<desc>)`` to retrieve a tuple of variable variables states directly, for example if you are inside a function where a tensor was annotated as ``x: ShapedTensor["a 3 b"]``, you can access the values of `a` and `b` as ``a, b = get_shape_variables("a b")``.
-
-You can even go one step further and do a check tensors inside the wrapped function directly with ``assert_shape_here(x, <desc>)``, which will run a check on the object or shape ``x`` given the descriptor and add previously unseen variables in the descriptor to the state inside the wrapped function. This way you can check the output of the function against tensor shapes that only appear in the body of the function.
-
-## Compatibility
-
-While the examples below are using PyTorch, *tensor-shape-assert* requires very minimal functionality and is compatible with any array class that has a ``shape`` method, which includes popular frameworks such as NumPy, TensorFlow, Jax and more generally frameworks that conform to the [Python array API standard](https://data-apis.org/array-api/latest/).
-
-## More Examples
-
-The complex example additionally contains tuple and optional annotations.
 ```python
 @check_tensor_shapes()
-def my_complicated_func(
-        x: tuple[
-            ShapedTensor["a ... 3"],
-            ShapedTensor["b"] | None,
-            ShapedTensor["c 2"]
-        ],
-        y: ShapedTensor["... c"]
-) -> tuple[
-    ShapedTensor["a"],
-    ShapedTensor["b"] | None
-]:
-    x1, x2, x3 = x
-    z = x1[..., 2:] # (a, ..., 1)
-    r = x3[:, 0] + y # (..., c)
-    f = r[None] + z # (a, ..., c)
-    g = f.flatten(1).sum(dim=1) # (a,)
-
-    if x2 is not None and x2.sum() > 0:
-        return g, x2
-    else:
-        return g, None
+def normalize(x: ShapedTensor["... d"]) -> ShapedTensor["... d"]:
+    return x / np.linalg.norm(x, axis=-1, keepdims=True)
 ```
 
-Here are some calling examples:
+Use a named batch dimension (`...B`) to enforce that multiple parameters share the same batch shape:
 
 ```python
-my_complicated_func(
-    x=(
-        torch.zeros(5, 4, 3),
-        torch.zeros(8),
-        torch.zeros(4, 2),
-    ),
-    y=torch.zeros(4, 4)
-) # works
+@check_tensor_shapes()
+def bilinear(x: ShapedTensor["...B m k"], y: ShapedTensor["...B k n"]) -> ShapedTensor["...B m n"]:
+    return x @ y
 ```
-This works, because ``a=5, b=8, c=4`` and the batch dimension ``(4,)`` matches for all annotated tensors.
+
+### Dtype Annotations
+
+Add a dtype kind — and optionally a bit width — anywhere in the descriptor:
 
 ```python
-my_complicated_func(
-    x=(
-        torch.zeros(5, 4, 3),
-        None,
-        torch.zeros(4, 2),
-    ),
-    y=torch.zeros(4, 4)
-) # works
+@check_tensor_shapes()
+def safe_mean(x: ShapedTensor["float n k"]) -> ShapedTensor["float n"]:
+    return x.mean(axis=-1)
 ```
-This call also passes the test, because the second item in `x` is allowed to be optional, whereas
+
+Supported dtype tokens:
+
+| Token | Accepted dtypes |
+|-------|----------------|
+| `bool` | boolean |
+| `int`, `int8`, `int16`, `int32`, `int64` | signed integer |
+| `uint`, `uint8`, `uint16`, `uint32`, `uint64` | unsigned integer |
+| `integral` | any integer (signed or unsigned) |
+| `float`, `float16`, `float32`, `float64` | real floating-point |
+| `complex`, `complex64`, `complex128` | complex floating-point |
+| `numeric` | any non-boolean numeric dtype |
+
+These tokens are reserved and cannot be used as variable names.
+
+### Optional and Nested Annotations
+
+Annotations can be arbitrarily nested in tuples or lists. Mark an optional tensor with `| None`:
 
 ```python
-my_complicated_func(
-    x=(
-        torch.zeros(5, 3, 6, 3),
-        torch.zeros(8),
-        torch.zeros(4, 2),
-    ),
-    y=torch.zeros(4, 4)
-) # fails
+@check_tensor_shapes()
+def process(
+        x: tuple[ShapedTensor["n k"], ShapedTensor["n"] | None],
+        y: ShapedTensor["n 3"],
+) -> ShapedTensor["n"]:
+    a, b = x
+    result = y.sum(axis=1)
+    if b is not None:
+        result = result + b
+    return result
 ```
-fails, because the batch dimension does not match between the first item in `x` (batch dim = `(3,6)`) and tensor `y` (batch dim = `(4,)`).
+
+`NamedTuple` classes are also supported — apply the decorator to the class itself.
+
+## API Reference
+
+### `check_tensor_shapes`
+
+```python
+@check_tensor_shapes(
+    constraints=None,
+    ints_to_variables=True,
+    check_mode=None,
+    include_outer_variables=None,
+    disable_union_warning=False,
+)
+```
+
+Decorator that enables shape checking for a function, class `__init__`, or `NamedTuple` class.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `constraints` | `list[str \| Callable]` | `None` | Extra constraints on shape variables. String expressions are evaluated (e.g. `"a == 2 * b"`); callables receive the variable dict and must return `bool`. Checked before *and* after the wrapped call. |
+| `ints_to_variables` | `bool` | `True` | Promote `int` parameters to shape variables. |
+| `check_mode` | `"always" \| "once" \| "never" \| None` | `None` | Per-function check mode, overrides the global setting. |
+| `include_outer_variables` | `bool \| None` | `None` | Inherit shape variables from an enclosing `check_tensor_shapes` scope. Defaults to `False` for functions and `True` for `NamedTuple` instances. |
+| `disable_union_warning` | `bool` | `False` | Suppress the warning about partially unsupported union types. |
 
 ---
-### Retrieve shape variables
-You can access the shape variable values using ``get_shape_variables`` like this
+
+### `set_global_check_mode`
+
+```python
+set_global_check_mode(mode: Literal["always", "once", "never"])
+```
+
+Set the global check mode for all `@check_tensor_shapes`-decorated functions. Per-function `check_mode` takes precedence when specified.
+
+| Mode | Behaviour |
+|------|-----------|
+| `"always"` | Check every call (default) |
+| `"once"` | Check each decorated function only on its first call |
+| `"never"` | Disable all shape checks globally |
+
+---
+
+### `get_shape_variables`
+
+```python
+get_shape_variables(names: str) -> tuple[int | tuple[int, ...] | None, ...]
+```
+
+Return the current inferred values of shape variables. Must be called from inside a `@check_tensor_shapes`-wrapped function.
+
 ```python
 @check_tensor_shapes()
 def my_func(x: ShapedTensor["n k 3"]):
     n, k = get_shape_variables("n k")
-    print(k)
-my_func(torch.zeros(10, 9))  # prints "9"
+    print(f"n={n}, k={k}")
+
+my_func(np.zeros((10, 9, 3)))  # prints "n=10, k=9"
 ```
 
 ---
-### int to variables
-If ``int`` parameters are present, they can be used inside the shape descriptors:
+
+### `assert_shape_here`
+
+```python
+assert_shape_here(obj_or_shape, descriptor: str) -> None
+```
+
+Validate a tensor or shape tuple against a descriptor from inside a `@check_tensor_shapes`-wrapped function. Any new variables in the descriptor are registered for subsequent checks, including the function's return annotation.
+
 ```python
 @check_tensor_shapes()
-def my_func(x: ShapedTensor["n k"], k: int):
-    return x.sum(dim=1)
-
-my_func(torch.zeros(10, 2), k=2) # works
-my_func(torch.zeros(10, 2), k=3) # fails
+def my_func(x: ShapedTensor["n k"]) -> ShapedTensor["n m"]:
+    y = some_operation(x)
+    assert_shape_here(y, "n m")  # registers m; return annotation reuses it
+    return y
 ```
 
-unless this functionality is explicitly turned off:
-```python
-@check_tensor_shapes(ints_to_variables=False)
-def my_func(x: ShapedTensor["n k"], k: int):
-    return x.sum(dim=1)
-
-my_func(torch.zeros(10, 2), k=2) # works
-my_func(torch.zeros(10, 2), k=3) # works
-```
 ---
-### Type safety (new in version 0.3)
 
-If you are using static type checkers like MyPy, you can use the more verbose but type safe literal syntax. For this, you are also required to specify the array type. You can either do this manually with ``ShapedLiteral``, or use the predefined aliases ``ShapedTorchLiteral``, ``ShapedNumpyLiteral``. The example will show both options for PyTorch.
+### `label_tensor`
 
 ```python
+label_tensor(tensor, label: str | Iterable[str], overwrite: bool = False) -> tensor
+```
+
+Attach one or more labels to a tensor. Labels registered with `register_label` can appear in shape descriptors and are matched against the tensor's labels at call time.
+
+```python
+from tensor_shape_assert import register_label, label_tensor
+
+register_label("encoder_output")
+
+z = label_tensor(encoder(x), "encoder_output")
+
+@check_tensor_shapes()
+def decode(z: ShapedTensor["encoder_output n d"]) -> ShapedTensor["n vocab"]:
+    ...
+```
+
+---
+
+### `register_label`
+
+```python
+register_label(label: str, constraint_fn: Callable[[array], bool] | None = None)
+```
+
+Register a custom label token for use in shape descriptors.
+
+- If `constraint_fn` is `None`, the label is **unconstrained**: tensors must be explicitly tagged with `label_tensor` before being passed to a checked function.
+- If `constraint_fn` is provided, the label behaves like a **dtype annotation**: any tensor whose descriptor contains this label is automatically checked by calling `constraint_fn(tensor)`. Constrained labels cannot be assigned via `label_tensor`.
+
+---
+
+### Trace Utilities
+
+Use the trace API to inspect how shape variables are inferred — useful for debugging:
+
+```python
+from tensor_shape_assert import start_trace_recording, stop_trace_recording, trace_records_to_string
+
+start_trace_recording()
+my_func(np.zeros((10, 9, 3)))
+records = stop_trace_recording()
+print(trace_records_to_string(records))
+```
+
+| Function | Description |
+|----------|-------------|
+| `start_trace_recording()` | Begin capturing per-parameter variable assignments |
+| `stop_trace_recording()` | Stop capturing and return the list of `TraceRecord` objects |
+| `trace_records_to_string(records)` | Format records as an indented, human-readable string |
+
+---
+
+### Type-Safe Literal Syntax
+
+For full static type-checker (MyPy, Pyright) compatibility, use `ShapedLiteral` and the pre-built framework aliases:
+
+```python
+import torch
 from typing import Literal as L
+from tensor_shape_assert import check_tensor_shapes, ShapedTorchLiteral, ShapedLiteral
 
 @check_tensor_shapes()
-def my_simple_func(
-        x: ShapedTorchLiteral[L["a b 3"]],
-        y: ShapedTorchLiteral[L["b 2"]]
-) -> ShapedLiteral[torch.Tensor, L["a"]]:
+def my_func(
+        x: ShapedTorchLiteral[L["n k"]],
+        y: ShapedTorchLiteral[L["k m"]],
+) -> ShapedLiteral[torch.Tensor, L["n m"]]:
+    return x @ y
+```
 
-    z = x[:, :, :2] + y[None]
-    return (z[:, :, 0] * z[:, :, 1]).sum(dim=1)
+| Alias | Array type |
+|-------|------------|
+| `ShapedTorchLiteral[L["..."]]` | `torch.Tensor` |
+| `ShapedNumpyLiteral[L["..."]]` | `numpy.ndarray` |
+| `ShapedLiteral[T, L["..."]]` | Any type `T` |
+
+## Extended Example
+
+Tuple inputs, optional parameters, and batch dimensions together:
+
+```python
+import torch
+from tensor_shape_assert import check_tensor_shapes, ShapedTensor
+
+@check_tensor_shapes()
+def attention(
+        query: ShapedTensor["...B heads seq_q d"],
+        key_value: tuple[
+            ShapedTensor["...B heads seq_kv d"],
+            ShapedTensor["...B heads seq_kv d"],
+        ],
+        mask: ShapedTensor["...B 1 seq_q seq_kv"] | None = None,
+) -> ShapedTensor["...B heads seq_q d"]:
+    keys, values = key_value
+    scores = query @ keys.transpose(-2, -1)  # (...B, heads, seq_q, seq_kv)
+    if mask is not None:
+        scores = scores + mask
+    weights = scores.softmax(dim=-1)
+    return weights @ values
+
+# All of the following pass:
+attention(
+    query=torch.zeros(2, 8, 16, 64),
+    key_value=(torch.zeros(2, 8, 32, 64), torch.zeros(2, 8, 32, 64)),
+)
+
+attention(
+    query=torch.zeros(4, 2, 8, 16, 64),  # extra batch dim
+    key_value=(torch.zeros(4, 2, 8, 32, 64), torch.zeros(4, 2, 8, 32, 64)),
+    mask=torch.zeros(4, 2, 1, 16, 32),
+)
+```
+
+## Compatibility
+
+`tensor-shape-assert` works with any array library whose objects expose a `.shape` property:
+
+- [PyTorch](https://pytorch.org/)
+- [NumPy](https://numpy.org/)
+- [JAX](https://jax.readthedocs.io/)
+- [TensorFlow](https://tensorflow.org/)
+- Any library conforming to the [Python Array API standard](https://data-apis.org/array-api/latest/)
+
+## License
+
+This project is released under the Unlicense. See [LICENSE](LICENSE) for details.
 ```
 
 Another benefit from using the typed version is that tooltips in VS Code are more helpful, as they can pass trough the ``Literal`` string. This way you can check the annotated shape without having to open the file with the annotated code.
