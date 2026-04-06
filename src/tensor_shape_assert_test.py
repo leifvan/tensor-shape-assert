@@ -1778,5 +1778,19 @@ class TestLabelSystem(unittest.TestCase):
         with self.assertRaises(LabelAnnotationError):
             label_tensor(x, "test_label_2", overwrite=False)
 
-    # def test_try_to_force_weakref_collision(self):
-    #     ...
+    def test_no_label_annotation_means_any_label(self):
+        @check_tensor_shapes()
+        def fn(x: ShapedTensor["n m 3"]) -> ShapedTensor["3"]:
+            return xp.sum(x, axis=(0, 1))
+
+        fn(xp.zeros((5, 6, 3)))
+        fn(label_tensor(xp.zeros((5, 6, 3)), "test_label"))
+        fn(label_tensor(xp.zeros((5, 6, 3)), "test_label_2"))
+        fn(label_tensor(xp.zeros((5, 6, 3)), ("test_label", "test_label_2")))
+
+    def test_more_labels_than_annotated_are_allowed(self):
+        @check_tensor_shapes()
+        def fn(x: ShapedTensor["n m 3 test_label"]) -> ShapedTensor["3"]:
+            return xp.sum(x, axis=(0, 1))
+
+        fn(label_tensor(xp.zeros((5, 6, 3)), ("test_label", "test_label_2")))
