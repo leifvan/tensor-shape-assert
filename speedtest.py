@@ -1,5 +1,5 @@
 from src.tensor_shape_assert import ShapedTensor, check_tensor_shapes
-from test_utils import get_library_by_name, NAME_LIBRARY_MAP
+from src.test_utils import get_library_by_name, NAME_LIBRARY_MAP
 from time import time
 from tqdm import tqdm
 from tabulate import tabulate
