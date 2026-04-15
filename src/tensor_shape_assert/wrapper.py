@@ -119,6 +119,11 @@ def label_tensor(
     LabelAnnotationError
         If the given label is not registered or if the tensor already has labels.
     """
+
+    # skip if checks are disabled
+    if _global_check_mode == "never":
+        return tensor
+
     if isinstance(label, str):
         label = [label]
 

@@ -1420,8 +1420,22 @@ class TestTorchCompile(unittest.TestCase):
         compiled_test(xp.zeros((4, 3, 1)))
         warnings.filterwarnings("default", category=CheckDisabledWarning)
 
-
         self.assertTrue(True)
+
+    def test_labeling_compatible_with_torch_compile(self):
+        import torch
+        set_global_check_mode('never')
+        register_label("test_label")
+
+        @check_tensor_shapes()
+        def test(x: ShapedTensor["n m 2"]) -> ShapedTensor["2"]:
+            label_tensor(x, "test_label")
+            return x.sum(axis=(0, 1))
+
+        compiled_test = torch.compile(test, fullgraph=True)
+
+        # if TSA causes graph breaks, this will raise a RuntimeError about tracing
+        compiled_test(xp.zeros((4, 3, 1)))
 
 
 class TestNonTensorTupleAnnotations(unittest.TestCase):
